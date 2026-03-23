@@ -1,2 +1,287 @@
-# teamproject_heinzl_FSS26
-Case-Based Explanations for Multimodal Clinical Decision-Making
+# 🧠 Case-Based Explanations for Multimodal Clinical Decision-Making
+
+> **Teamproject FSS 2026** · Chair Prof. Heinzl · Universität Mannheim  
+> Supervised by Florian Rüffer
+
+---
+
+## 📌 Research Question
+
+> *How can comparative reasoning against similar patients be leveraged to produce clinically meaningful and faithful explanations for AI-based predictions in critical care?*
+
+We develop **Patient Similarity-Based Graph Neural Networks** that explain AI predictions in critical care by referencing comparable patients — enabling both **factual** ("why this outcome?") and **contrastive** ("what would need to change?") explanations.
+
+---
+
+## 🗂️ Repository Structure
+
+```
+cbr-clinical-gnn/
+│
+├── data/                          # Data loading & preprocessing scripts
+│   ├── mimic_loader.py            # MIMIC-IV data loading utilities
+│   ├── preprocessing.py           # Feature extraction & normalization
+│   ├── graph_construction.py      # Patient similarity graph builder
+│   └── README.md                  # Data access instructions
+│
+├── models/                        # Model architectures
+│   ├── gnn_base.py                # Base GNN model
+│   ├── multimodal_encoder.py      # Encoder for time series, text, tabular
+│   ├── similarity_network.py      # Patient similarity computation
+│   └── explainer.py               # CBR explanation module
+│
+├── explanations/                  # Explanation generation
+│   ├── factual.py                 # Case-based factual explanations
+│   ├── contrastive.py             # Contrastive / counterfactual explanations
+│   └── evaluation.py              # Faithfulness & clinical utility metrics
+│
+├── experiments/                   # Experiment configs & runners
+│   ├── configs/
+│   │   ├── length_of_stay.yaml
+│   │   ├── mortality_48h.yaml
+│   │   └── readmission.yaml
+│   └── run_experiment.py
+│
+├── notebooks/                     # Exploratory & result notebooks
+│   ├── 01_data_exploration.ipynb
+│   ├── 02_graph_construction.ipynb
+│   ├── 03_model_training.ipynb
+│   ├── 04_explanation_analysis.ipynb
+│   └── 05_evaluation_results.ipynb
+│
+├── tests/                         # Unit tests
+│   ├── test_preprocessing.py
+│   ├── test_models.py
+│   └── test_explanations.py
+│
+├── results/                       # Saved results (gitignored except structure)
+│   └── .gitkeep
+│
+├── .gitignore
+├── requirements.txt
+├── setup.py
+└── README.md
+```
+
+---
+
+## 📦 Dataset
+
+This project uses **[MIMIC-IV v3.1](https://physionet.org/content/mimiciv/3.1/)** — a large, freely available database of de-identified Electronic Health Records from the Beth Israel Deaconess Medical Center ICU.
+
+| Property | Detail |
+|---|---|
+| **Dataset** | MIMIC-IV ICU |
+| **Size** | ~70,000 ICU stays |
+| **Modalities** | Time series vitals, clinical text reports, tabular features |
+| **Extension** | MIMIC-CXR-JPG (lung images) |
+| **Access** | Requires PhysioNet credentialing |
+
+### Prediction Tasks
+
+| Task | Type | Label |
+|---|---|---|
+| **Length of Stay** | Binary classification | > 7 days |
+| **48-h Mortality** | Binary classification | Death within 48h |
+| **Readmission** | Binary classification | Readmission within 30 days |
+
+> ⚠️ **Data Access**: MIMIC-IV is not included in this repository. You must apply for access via [PhysioNet](https://physionet.org/content/mimiciv/3.1/). Once approved, follow the instructions in [`data/README.md`](data/README.md) to place the files correctly.
+
+---
+
+## 🛠️ Local Environment Setup
+
+### 1️⃣ Clone the repository
+
+```bash
+git clone git@github.com:<your-org>/cbr-clinical-gnn.git
+cd cbr-clinical-gnn
+```
+
+### 2️⃣ Create a virtual environment
+
+```bash
+python3 -m venv venv
+```
+
+### 3️⃣ Activate the virtual environment
+
+```bash
+source venv/bin/activate
+```
+
+Your prompt should change to:
+
+```
+(venv) yourusername@ubuntu:~/cbr-clinical-gnn$
+```
+
+To deactivate at any time:
+
+```bash
+deactivate
+```
+
+### 4️⃣ Install all required dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 5️⃣ Register the environment as a Jupyter kernel
+
+```bash
+python3 -m ipykernel install --user --name=cbr_env --display-name "CBR Clinical GNN"
+```
+
+### 6️⃣ Select the kernel in VS Code
+
+1. Open the Command Palette → `Ctrl + Shift + P`
+2. Search for **Python: Select Interpreter**
+3. Choose **CBR Clinical GNN** (or `venv` if you skipped step 5)
+
+You'll see it confirmed in the bottom-right corner of VS Code.
+
+### 7️⃣ Verify the setup
+
+Open `notebooks/01_data_exploration.ipynb` and run:
+
+```python
+import torch
+import torch_geometric
+import pandas as pd
+import numpy as np
+
+print("Environment setup successful!")
+print(f"PyTorch: {torch.__version__}")
+print(f"PyG: {torch_geometric.__version__}")
+```
+
+If it runs without error — 🎉 you're ready to go!
+
+### 🧠 Notes
+
+- `venv/` is excluded from Git via `.gitignore` — never push it.
+- If you install new packages, update the team's dependency list:
+
+```bash
+pip freeze > requirements.txt
+git add requirements.txt
+git commit -m "Update dependencies"
+git push
+```
+
+---
+
+## 🧭 Git Workflow Guide
+
+### 1. Update main before branching
+
+```bash
+git checkout main
+git pull origin main
+```
+
+### 2. Create a feature branch
+
+```bash
+git checkout -b feature/your-branch-name
+```
+
+**Branch naming conventions:**
+
+| Prefix | Use case |
+|---|---|
+| `feature/` | New functionality |
+| `fix/` | Bug fix |
+| `exp/` | Experiment run |
+| `docs/` | Documentation update |
+
+### 3. Stage and commit
+
+```bash
+git add .
+git commit -m "Add patient similarity graph construction"
+```
+
+### 4. Push your branch
+
+```bash
+git push -u origin feature/your-branch-name
+```
+
+### 5. Open a Pull Request
+
+1. Go to the repository on GitHub
+2. Click **Compare & Pull Request**
+3. Target branch: `main`
+4. Request at least one review before merging
+
+### 6. Clean up after merge
+
+```bash
+# Delete remote branch
+git push origin --delete feature/your-branch-name
+
+# Delete local branch
+git branch -d feature/your-branch-name
+```
+
+---
+
+## 🔬 Methodology Overview
+
+```
+MIMIC-IV ICU Data
+      │
+      ▼
+Multimodal Feature Encoding
+  ├── Time series vitals  → Temporal encoder (LSTM / Transformer)
+  ├── Clinical text       → Text encoder (BioClinicalBERT)
+  └── Tabular features    → MLP encoder
+      │
+      ▼
+Patient Similarity Graph Construction
+  (k-NN based on encoded patient representations)
+      │
+      ▼
+Graph Neural Network (GNN)
+  (Message passing over patient graph)
+      │
+      ▼
+Prediction + Case-Based Explanation
+  ├── Factual:     "Similar patients also stayed > 7 days"
+  └── Contrastive: "Peers with < 7 days had better SpO2"
+```
+
+---
+
+## 📊 Evaluation
+
+We evaluate explanations along two dimensions:
+
+- **Faithfulness**: Do the explanations reflect the model's actual reasoning?
+- **Clinical Meaningfulness**: Are the cited patient similarities clinically plausible?
+
+Metrics include: fidelity, explanation stability, nearest-neighbor alignment, and expert evaluation.
+
+---
+
+## 👥 Team
+
+| Name | Role |
+|---|---|
+| Florian Rüffer | Supervisor |
+| *Team Member 1* | |
+| *Team Member 2* | |
+| *Team Member 3* | |
+
+---
+
+## 📄 License
+
+This project is for academic use only. MIMIC-IV data usage is governed by the [PhysioNet Credentialed Health Data License](https://physionet.org/content/mimiciv/view-license/3.1/).
+
+---
+
+*Teamproject FSS 2026 · Chair Prof. Heinzl · Universität Mannheim*

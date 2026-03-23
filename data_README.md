@@ -10,7 +10,7 @@ MIMIC-IV is a restricted dataset. To use it:
 4. Once approved, download via `wget` using your PhysioNet credentials:
 
 ```bash
-wget -r -N -c -np --user <your-username> --ask-password \
+wget -r -N -c -np --user Mummbach --ask-password \
   https://physionet.org/files/mimiciv/3.1/ -P data/raw/
 ```
 

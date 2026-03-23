@@ -1,6 +1,6 @@
 # 🧠 Case-Based Explanations for Multimodal Clinical Decision-Making
 
-> **Teamproject FSS 2026** · Chair Prof. Heinzl · Universität Mannheim  
+> **Teamproject FSS 2026** · Chair Prof. Heinzl · Universität Mannheim
 > Supervised by Florian Rüffer
 
 ---
@@ -94,8 +94,8 @@ This project uses **[MIMIC-IV v3.1](https://physionet.org/content/mimiciv/3.1/)*
 ### 1️⃣ Clone the repository
 
 ```bash
-git clone git@github.com:<your-org>/cbr-clinical-gnn.git
-cd cbr-clinical-gnn
+git clone git@github.com:Mummbach/teamproject_heinzl_FSS26.git
+cd teamproject_heinzl_FSS26
 ```
 
 ### 2️⃣ Create a virtual environment
@@ -113,7 +113,7 @@ source venv/bin/activate
 Your prompt should change to:
 
 ```
-(venv) yourusername@ubuntu:~/cbr-clinical-gnn$
+(venv) Mummbach@ubuntu:~/teamproject_heinzl_FSS26$
 ```
 
 To deactivate at any time:
@@ -284,4 +284,4 @@ This project is for academic use only. MIMIC-IV data usage is governed by the [P
 
 ---
 
-*Teamproject FSS 2026 · Chair Prof. Heinzl · Universität Mannheim*
+*Teamproject FSS 2026 · Chair Prof. Heinzl · Universität Mannheim · [Mummbach](https://github.com/Mummbach)*

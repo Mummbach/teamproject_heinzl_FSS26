@@ -272,9 +272,11 @@ Metrics include: fidelity, explanation stability, nearest-neighbor alignment, an
 | Name | Role |
 |---|---|
 | Florian Rüffer | Supervisor |
-| *Team Member 1* | |
-| *Team Member 2* | |
-| *Team Member 3* | |
+| Julia Kocharina | |
+| Johannes Kramberg | |
+| Mika Luu | |
+| Ebubekir Günaydin | |
+| Maximilian Rumbach | |
 
 ---
 

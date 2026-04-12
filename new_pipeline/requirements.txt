@@ -1,0 +1,6 @@
+pandas
+numpy
+matplotlib
+pyarrow>=14.0
+scikit-learn
+torch>=2.0

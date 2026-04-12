@@ -4,9 +4,9 @@ env/
 .env/
 .venv/
 
-# New Pipeline — data and outputs are never committed
-new_pipeline/data/
-new_pipeline/output/
+# Pipeline — data and outputs are never committed
+pipeline/data/
+pipeline/output/
 
 # Claude memory
 .claude/

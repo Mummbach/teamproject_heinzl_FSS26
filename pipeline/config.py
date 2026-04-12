@@ -6,10 +6,12 @@ Import this in every script to keep paths and constants consistent.
 from pathlib import Path
 
 # ── Directory paths ───────────────────────────────────────────────────────────
-DATA_DIR    = Path("data")
+# BASE_DIR resolves to the pipeline/ folder regardless of working directory
+BASE_DIR    = Path(__file__).parent
+DATA_DIR    = BASE_DIR / "data"
 HOSP_DIR    = DATA_DIR / "hosp"
 ICU_DIR     = DATA_DIR / "icu"
-OUTPUT_DIR  = Path("output")
+OUTPUT_DIR  = BASE_DIR / "output"
 
 # RXCUI → ATC mapping file (download separately if missing)
 # Source: https://github.com/MIT-LCP/mimic-code

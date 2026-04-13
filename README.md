@@ -16,51 +16,7 @@ We develop **Patient Similarity-Based Graph Neural Networks** that explain AI pr
 ## 🗂️ Repository Structure
 
 ```
-cbr-clinical-gnn/
-│
-├── data/                          # Data loading & preprocessing scripts
-│   ├── mimic_loader.py            # MIMIC-IV data loading utilities
-│   ├── preprocessing.py           # Feature extraction & normalization
-│   ├── graph_construction.py      # Patient similarity graph builder
-│   └── README.md                  # Data access instructions
-│
-├── models/                        # Model architectures
-│   ├── gnn_base.py                # Base GNN model
-│   ├── multimodal_encoder.py      # Encoder for time series, text, tabular
-│   ├── similarity_network.py      # Patient similarity computation
-│   └── explainer.py               # CBR explanation module
-│
-├── explanations/                  # Explanation generation
-│   ├── factual.py                 # Case-based factual explanations
-│   ├── contrastive.py             # Contrastive / counterfactual explanations
-│   └── evaluation.py              # Faithfulness & clinical utility metrics
-│
-├── experiments/                   # Experiment configs & runners
-│   ├── configs/
-│   │   ├── length_of_stay.yaml
-│   │   ├── mortality_48h.yaml
-│   │   └── readmission.yaml
-│   └── run_experiment.py
-│
-├── notebooks/                     # Exploratory & result notebooks
-│   ├── 01_data_exploration.ipynb
-│   ├── 02_graph_construction.ipynb
-│   ├── 03_model_training.ipynb
-│   ├── 04_explanation_analysis.ipynb
-│   └── 05_evaluation_results.ipynb
-│
-├── tests/                         # Unit tests
-│   ├── test_preprocessing.py
-│   ├── test_models.py
-│   └── test_explanations.py
-│
-├── results/                       # Saved results (gitignored except structure)
-│   └── .gitkeep
-│
-├── .gitignore
-├── requirements.txt
-├── setup.py
-└── README.md
+TBA
 ```
 
 ---

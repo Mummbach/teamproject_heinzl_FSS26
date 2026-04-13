@@ -1,0 +1,1803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ICU LOS Prediction – Progress Presentation | University of Mannheim</title>
+<style>
+  :root {
+    --uni-blue: #003764;
+    --uni-blue-mid: #004f8c;
+    --uni-blue-light: #0074c2;
+    --uni-blue-pale: #cce0f0;
+    --uni-blue-bg: #eaf3fb;
+    --accent-gold: #c8a84b;
+    --text-dark: #1a1a2e;
+    --text-mid: #3a4a5c;
+    --text-light: #6b7d8e;
+    --white: #ffffff;
+    --border: #d0dde8;
+    --green: #2e7d32;
+    --red: #c62828;
+    --orange: #e65100;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    background: #1a2535;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  .slideshow-container {
+    width: 1280px;
+    height: 720px;
+    position: relative;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+
+  .slide {
+    width: 1280px;
+    height: 720px;
+    display: none;
+    position: absolute;
+    top: 0; left: 0;
+    background: var(--white);
+    overflow: hidden;
+  }
+
+  .slide.active { display: flex; flex-direction: column; }
+
+  /* ─── NAVIGATION ─── */
+  .nav-bar {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(0,55,100,0.9);
+    backdrop-filter: blur(8px);
+    padding: 10px 20px;
+    border-radius: 30px;
+    z-index: 1000;
+  }
+  .nav-bar button {
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: white;
+    padding: 6px 18px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.2s;
+  }
+  .nav-bar button:hover { background: rgba(255,255,255,0.3); }
+  .nav-bar span {
+    color: rgba(255,255,255,0.7);
+    font-size: 13px;
+    min-width: 80px;
+    text-align: center;
+  }
+
+  /* ─── COMMON COMPONENTS ─── */
+  .slide-header {
+    background: var(--uni-blue);
+    padding: 18px 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .slide-header h2 {
+    color: white;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .slide-header .header-tag {
+    background: rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.85);
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  .slide-body {
+    flex: 1;
+    padding: 28px 48px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .slide-footer {
+    background: var(--uni-blue-bg);
+    border-top: 2px solid var(--uni-blue);
+    padding: 10px 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .slide-footer span {
+    font-size: 11px;
+    color: var(--text-light);
+  }
+  .slide-footer .uni-badge {
+    font-size: 11px;
+    color: var(--uni-blue);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+
+  /* ─── CARDS ─── */
+  .card-grid {
+    display: grid;
+    gap: 14px;
+  }
+  .card-grid-2 { grid-template-columns: 1fr 1fr; }
+  .card-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .card-grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+  .card {
+    background: var(--uni-blue-bg);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--uni-blue);
+    border-radius: 6px;
+    padding: 14px 16px;
+  }
+  .card.green { border-left-color: var(--green); background: #f1f8f1; }
+  .card.red { border-left-color: var(--red); background: #fdf1f1; }
+  .card.orange { border-left-color: var(--orange); background: #fff8f0; }
+  .card.gold { border-left-color: var(--accent-gold); background: #fdf9ee; }
+
+  .card h4 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-light);
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .card .big-num {
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--uni-blue);
+    line-height: 1.1;
+  }
+  .card .big-num.green { color: var(--green); }
+  .card .big-num.red { color: var(--red); }
+  .card p {
+    font-size: 12.5px;
+    color: var(--text-mid);
+    line-height: 1.5;
+    margin-top: 4px;
+  }
+  .card ul {
+    list-style: none;
+    margin-top: 4px;
+  }
+  .card ul li {
+    font-size: 12px;
+    color: var(--text-mid);
+    padding: 2px 0;
+    padding-left: 14px;
+    position: relative;
+    line-height: 1.4;
+  }
+  .card ul li::before {
+    content: '›';
+    position: absolute;
+    left: 0;
+    color: var(--uni-blue);
+    font-weight: 700;
+  }
+
+  /* ─── TABLE ─── */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+  }
+  .data-table th {
+    background: var(--uni-blue);
+    color: white;
+    padding: 8px 12px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .data-table td {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-mid);
+    vertical-align: middle;
+  }
+  .data-table tr:nth-child(even) td { background: var(--uni-blue-bg); }
+  .data-table tr:hover td { background: var(--uni-blue-pale); }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge-blue { background: var(--uni-blue); color: white; }
+  .badge-green { background: #c8e6c9; color: #1b5e20; }
+  .badge-red { background: #ffcdd2; color: #b71c1c; }
+  .badge-gray { background: #eceff1; color: #455a64; }
+
+  /* ─── PILL LISTS ─── */
+  .pill-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill {
+    background: var(--uni-blue);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 14px;
+    font-size: 11.5px;
+    font-weight: 500;
+  }
+  .pill.light { background: var(--uni-blue-pale); color: var(--uni-blue); }
+  .pill.green { background: #c8e6c9; color: #1b5e20; }
+  .pill.red { background: #ffcdd2; color: #b71c1c; }
+
+  /* ─── PROGRESS BAR ─── */
+  .progress-bar-wrap { margin-top: 4px; }
+  .progress-bar-bg {
+    height: 8px;
+    background: var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--uni-blue-light);
+    border-radius: 4px;
+    transition: width 0.8s ease;
+  }
+  .progress-bar-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-light);
+    margin-bottom: 3px;
+  }
+
+  /* ─── SECTION LABEL ─── */
+  .section-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--uni-blue-light);
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  /* ─── METRIC ROW ─── */
+  .metric-row {
+    display: flex;
+    gap: 12px;
+  }
+  .metric-box {
+    flex: 1;
+    background: var(--uni-blue);
+    color: white;
+    border-radius: 8px;
+    padding: 14px 16px;
+    text-align: center;
+  }
+  .metric-box .val {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+  .metric-box .lbl {
+    font-size: 11px;
+    opacity: 0.75;
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .metric-box.green-bg { background: var(--green); }
+  .metric-box.light-bg { background: var(--uni-blue-mid); }
+
+  /* ─── SEPARATOR ─── */
+  .sep { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+
+  /* ─── ARCHITECTURE DIAGRAM ─── */
+  .arch-block {
+    background: var(--uni-blue);
+    color: white;
+    border-radius: 6px;
+    padding: 10px 16px;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .arch-block.gray { background: var(--text-mid); }
+  .arch-block.green { background: var(--green); }
+  .arch-block.small { font-size: 11.5px; padding: 7px 12px; }
+  .arch-arrow {
+    text-align: center;
+    font-size: 18px;
+    color: var(--uni-blue);
+    line-height: 1;
+    padding: 2px 0;
+  }
+
+  /* ─── QUESTION SLIDE ─── */
+  .question-item {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--uni-blue-light);
+    border-radius: 6px;
+    padding: 10px 14px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .question-item .q-num {
+    background: var(--uni-blue);
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    min-width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .question-item .q-text {
+    font-size: 12.5px;
+    color: var(--text-mid);
+    line-height: 1.4;
+  }
+  .question-item .q-text strong {
+    color: var(--uni-blue);
+    display: block;
+    margin-bottom: 2px;
+    font-size: 12px;
+  }
+
+  /* ─── INLINE CHART ─── */
+  .chart-canvas-wrap {
+    flex: 1;
+    position: relative;
+  }
+
+  /* ─── SPLIT DONUT / BAR ─── */
+  .split-visual {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 8px;
+  }
+  .split-bar {
+    height: 22px;
+    display: flex;
+    border-radius: 4px;
+    overflow: hidden;
+    flex: 1;
+  }
+  .split-bar div {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: white;
+  }
+
+  /* ─── PIPELINE FLOW ─── */
+  .pipeline-flow {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin: 8px 0;
+  }
+  .pipe-step {
+    background: var(--uni-blue);
+    color: white;
+    padding: 10px 14px;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-align: center;
+    flex: 1;
+    border-radius: 0;
+    line-height: 1.3;
+  }
+  .pipe-step:first-child { border-radius: 6px 0 0 6px; }
+  .pipe-step:last-child { border-radius: 0 6px 6px 0; }
+  .pipe-step.light { background: var(--uni-blue-mid); }
+  .pipe-step.lighter { background: var(--uni-blue-light); }
+  .pipe-step.pale { background: var(--uni-blue-pale); color: var(--uni-blue); }
+  .pipe-arrow-sep {
+    width: 0;
+    height: 0;
+    border-top: 21px solid transparent;
+    border-bottom: 21px solid transparent;
+    border-left: 12px solid var(--uni-blue);
+    flex-shrink: 0;
+    z-index: 1;
+  }
+  .pipe-arrow-sep.light { border-left-color: var(--uni-blue-mid); }
+  .pipe-arrow-sep.lighter { border-left-color: var(--uni-blue-light); }
+  .pipe-arrow-sep.pale { border-left-color: var(--uni-blue-pale); }
+
+  /* ─── TITLE SLIDE ─── */
+  .title-slide {
+    background: var(--uni-blue);
+    flex-direction: column;
+  }
+  .title-slide .top-bar {
+    background: rgba(255,255,255,0.07);
+    padding: 18px 48px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .title-slide .top-bar .logo-text {
+    font-size: 14px;
+    color: rgba(255,255,255,0.6);
+    font-weight: 500;
+    letter-spacing: 0.5px;
+  }
+  .title-slide .top-bar .date-text {
+    font-size: 13px;
+    color: rgba(255,255,255,0.5);
+  }
+  .title-slide .content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 80px;
+  }
+  .title-slide .tag-line {
+    font-size: 13px;
+    color: var(--accent-gold);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+  .title-slide h1 {
+    font-size: 44px;
+    color: white;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-bottom: 12px;
+    max-width: 850px;
+  }
+  .title-slide .subtitle {
+    font-size: 20px;
+    color: rgba(255,255,255,0.65);
+    font-weight: 400;
+    margin-bottom: 32px;
+  }
+  .title-slide .meta {
+    display: flex;
+    gap: 32px;
+  }
+  .title-slide .meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .title-slide .meta-item .label {
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  .title-slide .meta-item .value {
+    font-size: 14px;
+    color: rgba(255,255,255,0.85);
+    font-weight: 500;
+  }
+  .title-slide .bottom-strip {
+    background: rgba(255,255,255,0.06);
+    padding: 14px 48px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+  .title-slide .bottom-strip .ds-chip {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.75);
+    padding: 5px 14px;
+    border-radius: 14px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  /* ─── AGENDA SLIDE ─── */
+  .agenda-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: white;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .agenda-item:hover { background: var(--uni-blue-bg); }
+  .agenda-item .num {
+    background: var(--uni-blue);
+    color: white;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .agenda-item .title { font-size: 14px; color: var(--text-dark); font-weight: 500; }
+  .agenda-item .sub { font-size: 11.5px; color: var(--text-light); margin-top: 1px; }
+
+  /* ─── IMAGES ─── */
+  .fig-wrap {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+  }
+  .fig-wrap img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+
+  /* ─── INLINE TRAINING CHART ─── */
+  #training-chart {
+    width: 100%;
+    height: 200px;
+  }
+</style>
+</head>
+<body>
+
+<div class="slideshow-container">
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 1 — TITLE
+════════════════════════════════════════════════════════════════ -->
+<div class="slide active title-slide">
+  <div class="top-bar">
+    <span class="logo-text">UNIVERSITY OF MANNHEIM &nbsp;·&nbsp; Team Project FSS 2026</span>
+    <span class="date-text">April 2026</span>
+  </div>
+  <div class="content">
+    <div class="tag-line">Progress Presentation</div>
+    <h1>ICU Length-of-Stay Prediction</h1>
+    <div class="subtitle">Multimodal Clinical Decision-Making with MIMIC-IV</div>
+    <div class="meta">
+      <div class="meta-item">
+        <span class="label">Dataset</span>
+        <span class="value">MIMIC-IV v3.1</span>
+      </div>
+      <div class="meta-item">
+        <span class="label">Task</span>
+        <span class="value">Binary classification: LOS &gt; 7 days</span>
+      </div>
+      <div class="meta-item">
+        <span class="label">Cohort</span>
+        <span class="value">30,986 ICU stays</span>
+      </div>
+      <div class="meta-item">
+        <span class="label">Model</span>
+        <span class="value">Hybrid GRU + MLP</span>
+      </div>
+    </div>
+  </div>
+  <div class="bottom-strip">
+    <span class="ds-chip">MIMIC-IV v3.1</span>
+    <span class="ds-chip">PyTorch</span>
+    <span class="ds-chip">GRU + MLP</span>
+    <span class="ds-chip">168 Features</span>
+    <span class="ds-chip">AUROC 0.84</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 2 — AGENDA
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Agenda</h2>
+    <span class="header-tag">Overview</span>
+  </div>
+  <div class="slide-body">
+    <div class="card-grid card-grid-2" style="gap:10px;">
+      <div class="agenda-item"><div class="num">1</div><div><div class="title">Data Inclusion / Exclusion</div><div class="sub">Cohort definition, MIMIC-IV filters, label creation</div></div></div>
+      <div class="agenda-item"><div class="num">2</div><div><div class="title">Data Preparation</div><div class="sub">Time series, tabular, normalization, splits, labeling</div></div></div>
+      <div class="agenda-item"><div class="num">3</div><div><div class="title">Data Analysis</div><div class="sub">Missing values, distributions, correlations</div></div></div>
+      <div class="agenda-item" style="opacity:0.5;"><div class="num">4</div><div><div class="title">Textual Data Inclusion</div><div class="sub">Not yet implemented – planned next step</div></div></div>
+      <div class="agenda-item"><div class="num">5</div><div><div class="title">Simple DL Model</div><div class="sub">GRU encoder + static MLP, hybrid fusion</div></div></div>
+      <div class="agenda-item"><div class="num">6</div><div><div class="title">Initial Evaluation &amp; Insights</div><div class="sub">AUROC 0.84, F1 0.60, calibration</div></div></div>
+      <div class="agenda-item"><div class="num">7</div><div><div class="title">Open Questions</div><div class="sub">11 discussion points for today</div></div></div>
+      <div class="agenda-item"><div class="num">8</div><div><div class="title">Next Steps</div><div class="sub">Visual/text data, backend, web app, model improvements</div></div></div>
+    </div>
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>Team Project FSS 2026 &nbsp;·&nbsp; MIMIC-IV ICU LOS Prediction</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 3 — DATA INCLUSION / EXCLUSION
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Data Inclusion / Exclusion</h2>
+    <span class="header-tag">Cohort Selection</span>
+  </div>
+  <div class="slide-body">
+    <div class="card-grid card-grid-2" style="flex:0 0 auto;">
+      <div>
+        <div class="section-label">Inclusion Criteria</div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div class="card green">
+            <ul>
+              <li>Adult ICU patients (age ≥ 18)</li>
+              <li>MIMIC-IV v3.1 — Beth Israel Deaconess MC</li>
+              <li>ICU stay length of stay ≥ 2 days</li>
+              <li><strong>First ICU stay per patient only</strong> (prevents data leakage)</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="section-label">Exclusion Criteria</div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div class="card red">
+            <ul>
+              <li>Patients who died within <strong>48 h of admission</strong> (label noise prevention)</li>
+              <li>ICU stays &gt; <strong>90 days</strong> (extreme outlier / LTACH transfers)</li>
+              <li>Pediatric patients (age &lt; 18)</li>
+              <li>Repeat ICU stays (only index admission used)</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-grid card-grid-4" style="flex:0 0 auto; gap:10px;">
+      <div class="card">
+        <h4>Final Cohort</h4>
+        <div class="big-num">30,986</div>
+        <p>unique ICU stays</p>
+      </div>
+      <div class="card green">
+        <h4>LOS &gt; 7 d (Positive)</h4>
+        <div class="big-num green">7,328</div>
+        <p>23.6% of cohort</p>
+      </div>
+      <div class="card">
+        <h4>LOS ≤ 7 d (Negative)</h4>
+        <div class="big-num">23,658</div>
+        <p>76.4% of cohort</p>
+      </div>
+      <div class="card gold">
+        <h4>Imbalance Ratio</h4>
+        <div class="big-num" style="color:var(--accent-gold);">3.2 : 1</div>
+        <p>negative : positive</p>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">Label Definition &amp; LOS Distribution</div>
+      <div class="card-grid card-grid-2" style="gap:10px;">
+        <div class="card">
+          <h4>LOS Buckets (Training Set)</h4>
+          <div style="display:flex;flex-direction:column;gap:5px;margin-top:6px;">
+            <div class="progress-bar-label"><span>&lt; 3 days</span><span>46.5%</span></div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:46.5%;"></div></div>
+            <div class="progress-bar-label"><span>3–5 days</span><span>18.2%</span></div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:18.2%;"></div></div>
+            <div class="progress-bar-label"><span>5–7 days</span><span>10.7%</span></div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:10.7%;"></div></div>
+            <div class="progress-bar-label"><span>7–14 days</span><span>15.4%</span></div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:15.4%; background:var(--accent-gold);"></div></div>
+            <div class="progress-bar-label"><span>14–30 days</span><span>7.5%</span></div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:7.5%; background:var(--accent-gold);"></div></div>
+            <div class="progress-bar-label"><span>30–90 days</span><span>1.7%</span></div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:1.7%; background:var(--red);"></div></div>
+          </div>
+        </div>
+        <div class="card">
+          <h4>Key LOS Statistics</h4>
+          <table class="data-table" style="font-size:12px;">
+            <tr><td>Minimum</td><td><strong>2.0 days</strong></td></tr>
+            <tr><td>Median</td><td><strong>3.4 days</strong></td></tr>
+            <tr><td>Mean</td><td><strong>5.3 days</strong></td></tr>
+            <tr><td>Std Dev</td><td><strong>9.2 days</strong></td></tr>
+            <tr><td>Maximum (post-filter)</td><td><strong>90.0 days</strong></td></tr>
+            <tr><td>Classification boundary</td><td><span class="badge badge-blue">&gt; 7 days = positive</span></td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>01_selection.py &nbsp;·&nbsp; MIMIC-IV v3.1</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 4 — DATA PREPARATION OVERVIEW
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Data Preparation — Pipeline Overview</h2>
+    <span class="header-tag">6-Step Pipeline</span>
+  </div>
+  <div class="slide-body">
+
+    <div>
+      <div class="pipeline-flow">
+        <div class="pipe-step">01<br><small style="font-weight:400;">Selection</small></div>
+        <div class="pipe-arrow-sep"></div>
+        <div class="pipe-step light">02<br><small style="font-weight:400;">Features</small></div>
+        <div class="pipe-arrow-sep light"></div>
+        <div class="pipe-step lighter">03<br><small style="font-weight:400;">Splitting</small></div>
+        <div class="pipe-arrow-sep lighter"></div>
+        <div class="pipe-step" style="background:#0090d4;">04<br><small style="font-weight:400;">Preprocessing</small></div>
+        <div class="pipe-arrow-sep" style="border-left-color:#0090d4;"></div>
+        <div class="pipe-step" style="background:#00a89a;">05<br><small style="font-weight:400;">Analysis</small></div>
+        <div class="pipe-arrow-sep" style="border-left-color:#00a89a;"></div>
+        <div class="pipe-step" style="background:#2e7d32;">06<br><small style="font-weight:400;">Normalize</small></div>
+        <div class="pipe-arrow-sep" style="border-left-color:#2e7d32;"></div>
+        <div class="pipe-step" style="background:#5c2d91;">07<br><small style="font-weight:400;">Model GRU</small></div>
+      </div>
+    </div>
+
+    <div class="card-grid card-grid-3" style="flex:1; gap:12px;">
+      <div class="card" style="display:flex;flex-direction:column;gap:6px;">
+        <h4>Feature Groups (168 total)</h4>
+        <table class="data-table" style="font-size:11.5px; margin-top:4px;">
+          <thead><tr><th>Group</th><th>Count</th><th>Type</th></tr></thead>
+          <tbody>
+            <tr><td>Demographics</td><td><strong>27</strong></td><td><span class="badge badge-gray">Binary / Ordinal</span></td></tr>
+            <tr><td>ICD Diagnoses</td><td><strong>18</strong></td><td><span class="badge badge-gray">Binary</span></td></tr>
+            <tr><td>ATC Medications</td><td><strong>14</strong></td><td><span class="badge badge-gray">Binary</span></td></tr>
+            <tr><td>Vital Aggregates</td><td><strong>96</strong></td><td><span class="badge badge-green">Continuous</span></td></tr>
+            <tr><td>Missingness Flags</td><td><strong>12</strong></td><td><span class="badge badge-gray">Binary</span></td></tr>
+            <tr><td style="font-weight:700;">Total</td><td><strong>168</strong></td><td><span class="badge badge-blue">Mixed</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h4>Observation Window</h4>
+        <div style="text-align:center; padding:12px 0;">
+          <div style="font-size:38px; font-weight:700; color:var(--uni-blue);">48h</div>
+          <div style="font-size:12px; color:var(--text-mid); margin-top:4px;">post-admission observation window</div>
+        </div>
+        <p>All time-series and medication features are extracted <strong>within the first 48 hours</strong> to enable <strong>early prediction</strong> and prevent outcome leakage.</p>
+        <div style="margin-top:8px; padding:8px; background:var(--uni-blue-bg); border-radius:4px;">
+          <div style="font-size:11px; color:var(--text-mid);">ℹ︎ &nbsp;Minimum LOS filter of 2 days ensures every patient has at least 48h of available data</div>
+        </div>
+      </div>
+      <div class="card">
+        <h4>Key Anti-Leakage Measures</h4>
+        <ul>
+          <li>Imputer medians fitted on <strong>training data only</strong></li>
+          <li>StandardScaler fitted on <strong>training data only</strong></li>
+          <li>Medications restricted to <strong>first 48h window</strong></li>
+          <li><strong>First ICU stay only</strong> per patient</li>
+          <li>No future information (intime / outtime excluded from features)</li>
+          <li>Fixed random seed <strong>42</strong> for full reproducibility</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card" style="flex:0 0 auto;">
+      <h4>Demographics Encoding (27 features)</h4>
+      <div class="pill-list" style="margin-top:6px;">
+        <span class="pill light">Age (continuous)</span>
+        <span class="pill light">Gender (binary)</span>
+        <span class="pill light">Race (5 flags)</span>
+        <span class="pill light">Language (binary)</span>
+        <span class="pill light">Insurance (3 flags)</span>
+        <span class="pill light">Admission type (4 flags)</span>
+        <span class="pill light">Admission location (5 flags)</span>
+        <span class="pill light">Marital status (4 flags)</span>
+        <span class="pill light">ICU unit (7 flags)</span>
+        <span class="pill light">Year group (ordinal 0–4)</span>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>02_features.py · 03_splitting.py · 04_preprocessing.py · 06_normalize.py</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 5 — ICD + ATC FEATURES
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Feature Engineering — ICD Diagnoses &amp; ATC Medications</h2>
+    <span class="header-tag">Code Aggregation</span>
+  </div>
+  <div class="slide-body">
+    <div class="card-grid card-grid-2" style="flex:1; gap:14px;">
+
+      <!-- ICD -->
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-label">ICD-9 / ICD-10 Diagnoses → 18 Binary Categories</div>
+        <div class="card">
+          <p>Thousands of raw ICD codes are mapped to <strong>18 clinically meaningful disease categories</strong> using a rule-based prefix mapping. Each category is a binary flag (1 = any diagnosis in that category present).</p>
+        </div>
+        <table class="data-table" style="font-size:11.5px; flex:1;">
+          <thead><tr><th>Category</th><th>ICD Chapter</th></tr></thead>
+          <tbody>
+            <tr><td>Infectious / Parasitic</td><td>A00–B99</td></tr>
+            <tr><td>Neoplasms</td><td>C00–D49</td></tr>
+            <tr><td>Endocrine / Metabolic</td><td>E00–E89</td></tr>
+            <tr><td>Blood Disorders</td><td>D50–D89</td></tr>
+            <tr><td>Mental &amp; Behavioral</td><td>F01–F99</td></tr>
+            <tr><td><strong>Circulatory</strong></td><td>I00–I99 (↑ positive rate)</td></tr>
+            <tr><td><strong>Respiratory</strong></td><td>J00–J99</td></tr>
+            <tr><td>Digestive</td><td>K00–K93</td></tr>
+            <tr><td>Nervous System</td><td>G00–G99</td></tr>
+            <tr><td>+ 9 more categories…</td><td>Injury, Congenital, etc.</td></tr>
+          </tbody>
+        </table>
+        <div class="card" style="background:var(--uni-blue-bg);">
+          <p style="font-size:12px;">Mean diagnoses per stay: <strong>2.3 categories</strong> &nbsp;|&nbsp; Total output: <strong>18 binary columns</strong></p>
+        </div>
+      </div>
+
+      <!-- ATC -->
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-label">NDC Drug Codes → 14 ATC Level-1 Classes (First 48h)</div>
+        <div class="card orange">
+          <p>Prescriptions are mapped via <strong>NDC → RxCUI → ATC Level-1</strong> using the RXCUI2atc4 crosswalk file. Only medications prescribed within the <strong>first 48h of ICU admission</strong> are included.</p>
+        </div>
+        <table class="data-table" style="font-size:11.5px; flex:1;">
+          <thead><tr><th>ATC Class</th><th>Letter Code</th></tr></thead>
+          <tbody>
+            <tr><td>Alimentary Tract &amp; Metabolism</td><td>A</td></tr>
+            <tr><td>Blood &amp; Hematopoietic</td><td>B</td></tr>
+            <tr><td><strong>Cardiovascular</strong></td><td>C (frequent in ICU)</td></tr>
+            <tr><td>Anti-infective (systemic)</td><td>J</td></tr>
+            <tr><td>Nervous System</td><td>N</td></tr>
+            <tr><td>Respiratory</td><td>R</td></tr>
+            <tr><td>Hormonal Preparations</td><td>H</td></tr>
+            <tr><td>Antineoplastic</td><td>L</td></tr>
+            <tr><td>+ 6 more classes…</td><td>D, G, M, P, S, V</td></tr>
+          </tbody>
+        </table>
+        <div class="card" style="background:#fff8f0; border-left-color:var(--orange);">
+          <p style="font-size:12px;">Mapping coverage: <strong>~81%</strong> of prescriptions successfully mapped to ATC &nbsp;|&nbsp; Output: <strong>14 binary columns</strong></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>02_features.py · icd_features.parquet · atc_features.parquet</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 6 — TIME-SERIES FEATURES
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Feature Engineering — Time-Series Vitals (48h Window)</h2>
+    <span class="header-tag">96 Aggregate Features</span>
+  </div>
+  <div class="slide-body">
+    <div class="card-grid card-grid-2" style="flex:1; gap:14px;">
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-label">12 Extracted Vital Signs</div>
+        <div class="card">
+          <div class="pill-list">
+            <span class="pill">Heart Rate</span>
+            <span class="pill">Systolic BP</span>
+            <span class="pill">Diastolic BP</span>
+            <span class="pill">Mean Arterial Pressure</span>
+            <span class="pill">Respiratory Rate</span>
+            <span class="pill">SpO₂</span>
+            <span class="pill">Temperature (°C)</span>
+            <span class="pill">Glucose</span>
+            <span class="pill">GCS Eye</span>
+            <span class="pill">GCS Verbal</span>
+            <span class="pill">GCS Motor</span>
+            <span class="pill">Urine Output</span>
+          </div>
+        </div>
+        <div class="section-label">8 Aggregation Statistics per Vital</div>
+        <div class="card gold">
+          <div class="pill-list">
+            <span class="pill light">mean</span>
+            <span class="pill light">median</span>
+            <span class="pill light">std</span>
+            <span class="pill light">min</span>
+            <span class="pill light">max</span>
+            <span class="pill light">first</span>
+            <span class="pill light">last</span>
+            <span class="pill light">slope (linear trend)</span>
+          </div>
+          <p style="margin-top:8px; font-size:12px;"><strong>12 vitals × 8 statistics = 96 continuous features</strong></p>
+        </div>
+        <div class="card">
+          <h4>Missingness Flags</h4>
+          <p>For each of the 12 vital signs, a <strong>binary missingness flag</strong> is added (1 = no measurements available in the 48h window). This allows the model to distinguish "no data" from "normal values".</p>
+          <p style="margin-top:4px;">→ <strong>+12 binary columns</strong></p>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-label">Physiological Range Filters &amp; Coverage</div>
+        <table class="data-table" style="font-size:11.5px;">
+          <thead><tr><th>Vital</th><th>Valid Range</th><th>Coverage</th></tr></thead>
+          <tbody>
+            <tr><td>Heart Rate</td><td>0–300 bpm</td><td><span class="badge badge-green">96%</span></td></tr>
+            <tr><td>SBP / DBP</td><td>0–300 / 0–200 mmHg</td><td><span class="badge badge-green">87%</span></td></tr>
+            <tr><td>MAP</td><td>0–250 mmHg</td><td><span class="badge badge-green">85%</span></td></tr>
+            <tr><td>Respiratory Rate</td><td>0–80 /min</td><td><span class="badge badge-green">83%</span></td></tr>
+            <tr><td>SpO₂</td><td>0–100 %</td><td><span class="badge badge-green">89%</span></td></tr>
+            <tr><td>Temperature</td><td>25–45 °C (F→C converted)</td><td><span class="badge badge-green">94%</span></td></tr>
+            <tr><td>Glucose</td><td>0–1000 mg/dL</td><td><span class="badge badge-gray">~65%</span></td></tr>
+            <tr><td>GCS (Eye/Verbal/Motor)</td><td>1–4 / 1–5 / 1–6</td><td><span class="badge badge-gray">~70%</span></td></tr>
+            <tr><td>Urine Output</td><td>0–5000 mL</td><td><span class="badge badge-gray">~60%</span></td></tr>
+          </tbody>
+        </table>
+        <div class="card">
+          <h4>Dual Representation</h4>
+          <ul>
+            <li><strong>ts_features.parquet</strong> — 96 aggregate stats (for MLP / gradient boosting)</li>
+            <li><strong>timeseries.parquet</strong> — Hourly format (48h × 12 vitals) for GRU / LSTM sequence models</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>02_features.py · ts_features.parquet · timeseries.parquet (1,487,328 rows)</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 7 — TRAIN / TEST SPLIT
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Data Preparation — Train / Validation / Test Split</h2>
+    <span class="header-tag">Stratified Split</span>
+  </div>
+  <div class="slide-body">
+    <div class="card-grid card-grid-3" style="flex:0 0 auto; gap:12px;">
+      <div class="card" style="text-align:center;">
+        <h4>Training Set</h4>
+        <div class="big-num">21,690</div>
+        <p>70% of cohort</p>
+        <div style="margin-top:8px; font-size:12px;">Positive rate: <strong>23.6%</strong></div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <h4>Validation Set</h4>
+        <div class="big-num">4,648</div>
+        <p>15% of cohort</p>
+        <div style="margin-top:8px; font-size:12px;">Positive rate: <strong>23.7%</strong></div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <h4>Test Set</h4>
+        <div class="big-num">4,648</div>
+        <p>15% of cohort</p>
+        <div style="margin-top:8px; font-size:12px;">Positive rate: <strong>23.5%</strong></div>
+      </div>
+    </div>
+
+    <div class="card-grid card-grid-2" style="flex:1; gap:14px;">
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-label">Splitting Strategy</div>
+        <div class="card">
+          <h4>Stratified Random Split</h4>
+          <ul>
+            <li>Stratified on <code style="background:#eee;padding:1px 4px;border-radius:3px;font-size:11px;">los_gt7</code> label to preserve class distribution across all three splits</li>
+            <li>Fixed random seed: <strong>42</strong> (full reproducibility)</li>
+            <li>Patient-level split: No patient appears in multiple splits</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>Imputation &amp; Normalization — Leakage Prevention</h4>
+          <ul>
+            <li>Median imputer fitted on <strong>train only</strong> → applied to val &amp; test</li>
+            <li>StandardScaler fitted on <strong>train only</strong> → applied to val &amp; test</li>
+            <li>Binary features (123) left unscaled</li>
+            <li>Continuous features (45) z-score normalized</li>
+            <li>Saved: <code style="background:#eee;padding:1px 4px;border-radius:3px;font-size:11px;">imputer_medians.parquet</code>, <code style="background:#eee;padding:1px 4px;border-radius:3px;font-size:11px;">scaler_params.parquet</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-label">Split Visual</div>
+        <div style="margin-top:4px;">
+          <div class="split-visual" style="flex-direction:column; gap:10px;">
+            <div class="split-bar" style="height:32px;">
+              <div style="width:70%; background:var(--uni-blue);">Train 70%</div>
+              <div style="width:15%; background:var(--uni-blue-light);">Val 15%</div>
+              <div style="width:15%; background:var(--accent-gold);">Test 15%</div>
+            </div>
+            <div style="display:flex; gap:6px; font-size:11.5px;">
+              <span style="display:flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:var(--uni-blue);display:inline-block;border-radius:2px;"></span>Training: 21,690 stays</span>
+              <span style="display:flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:var(--uni-blue-light);display:inline-block;border-radius:2px;"></span>Validation: 4,648</span>
+              <span style="display:flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:var(--accent-gold);display:inline-block;border-radius:2px;"></span>Test: 4,648</span>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h4>Label Distribution per Split</h4>
+          <div style="margin-top:6px;">
+            <div class="progress-bar-label"><span>Train — Positive (LOS&gt;7d)</span><span>23.6%</span></div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:23.6%; background:var(--accent-gold);"></div></div>
+            <div class="progress-bar-label" style="margin-top:6px;"><span>Val — Positive</span><span>23.7%</span></div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:23.7%; background:var(--accent-gold);"></div></div>
+            <div class="progress-bar-label" style="margin-top:6px;"><span>Test — Positive</span><span>23.5%</span></div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:23.5%; background:var(--accent-gold);"></div></div>
+          </div>
+          <p style="margin-top:8px; font-size:11.5px; color:var(--green);">✓ Positive rate well-preserved across all splits by stratification</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>03_splitting.py · 04_preprocessing.py · 06_normalize.py &nbsp;|&nbsp; Seed = 42</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 8 — DATA ANALYSIS
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Data Analysis — Distributions &amp; Missing Values</h2>
+    <span class="header-tag">EDA</span>
+  </div>
+  <div class="slide-body" style="flex-direction:row; gap:16px;">
+    <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
+      <div class="section-label">Feature Summary (Training Set)</div>
+      <div class="card-grid card-grid-2" style="gap:8px; flex:0 0 auto;">
+        <div class="card">
+          <h4>Total Features</h4>
+          <div class="big-num">168</div>
+          <p>after merging all groups</p>
+        </div>
+        <div class="card">
+          <h4>Missing Values Post-Imputation</h4>
+          <div class="big-num green">0</div>
+          <p>NaN values remaining</p>
+        </div>
+        <div class="card">
+          <h4>Binary Features</h4>
+          <div class="big-num">123</div>
+          <p>Demographics, ICD, ATC, missingness flags</p>
+        </div>
+        <div class="card">
+          <h4>Continuous Features</h4>
+          <div class="big-num">45</div>
+          <p>Age + 44 vital aggregates</p>
+        </div>
+      </div>
+
+      <div class="section-label">Missingness Before Imputation</div>
+      <div class="card" style="flex:1;">
+        <p style="margin-bottom:8px;">Missingness observed in the training set (pre-imputation):</p>
+        <div class="progress-bar-label"><span>Language</span><span>~3%</span></div>
+        <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:3%; background:var(--orange);"></div></div>
+        <div class="progress-bar-label" style="margin-top:5px;"><span>Marital Status</span><span>~8%</span></div>
+        <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:8%; background:var(--orange);"></div></div>
+        <div class="progress-bar-label" style="margin-top:5px;"><span>Glucose (no measurement)</span><span>~35%</span></div>
+        <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:35%; background:var(--red);"></div></div>
+        <div class="progress-bar-label" style="margin-top:5px;"><span>GCS components</span><span>~30%</span></div>
+        <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:30%; background:var(--red);"></div></div>
+        <div class="progress-bar-label" style="margin-top:5px;"><span>Urine output</span><span>~40%</span></div>
+        <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:40%; background:var(--red);"></div></div>
+        <p style="font-size:11px; color:var(--text-light); margin-top:6px;">→ Handled by median imputation (train-fitted) + binary missingness flags</p>
+      </div>
+    </div>
+
+    <div style="flex:1.3; display:flex; flex-direction:column; gap:10px;">
+      <div class="section-label">LOS Distribution</div>
+      <div class="fig-wrap" style="flex:1;">
+        <img src="../pipeline/output/analysis/los_distribution.png" alt="LOS Distribution" onerror="this.parentNode.innerHTML='<div style=\'padding:20px; color:#999; font-size:13px;\'>Figure: pipeline/output/analysis/los_distribution.png</div>'">
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>05_analysis.py &nbsp;|&nbsp; Training set analysis only (n=21,690)</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 9 — CORRELATIONS
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Data Analysis — Feature Correlations &amp; Frequencies</h2>
+    <span class="header-tag">EDA</span>
+  </div>
+  <div class="slide-body" style="flex-direction:row; gap:16px;">
+    <div style="flex:1.2; display:flex; flex-direction:column; gap:10px;">
+      <div class="section-label">Top 20 Feature Correlations with LOS &gt; 7 days</div>
+      <div class="fig-wrap" style="flex:1;">
+        <img src="../pipeline/output/analysis/correlations_top20.png" alt="Top 20 Correlations" onerror="this.parentNode.innerHTML='<div style=\'padding:20px; color:#999; font-size:13px;\'>Figure: pipeline/output/analysis/correlations_top20.png</div>'">
+      </div>
+    </div>
+    <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
+      <div class="section-label">ICD Category Frequencies</div>
+      <div class="fig-wrap" style="flex:1;">
+        <img src="../pipeline/output/analysis/rates_icd_categories.png" alt="ICD Rates" onerror="this.parentNode.innerHTML='<div style=\'padding:20px; color:#999; font-size:13px;\'>Figure: pipeline/output/analysis/rates_icd_categories.png</div>'">
+      </div>
+      <div class="section-label">ATC Drug Class Frequencies (48h)</div>
+      <div class="fig-wrap" style="flex:1;">
+        <img src="../pipeline/output/analysis/rates_atc_classes.png" alt="ATC Rates" onerror="this.parentNode.innerHTML='<div style=\'padding:20px; color:#999; font-size:13px;\'>Figure: pipeline/output/analysis/rates_atc_classes.png</div>'">
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>05_analysis.py &nbsp;·&nbsp; Pearson correlations with los_gt7 label</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 10 — TEXTUAL DATA (PLANNED)
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Textual Data Inclusion — Planned Next Phase</h2>
+    <span class="header-tag">Not Yet Implemented</span>
+  </div>
+  <div class="slide-body">
+    <div class="card orange" style="flex:0 0 auto;">
+      <p style="font-size:13px;">⚠ &nbsp;Textual / visual data integration is <strong>not yet implemented</strong>. This is the planned next phase of the project. We are currently evaluating infrastructure options.</p>
+    </div>
+
+    <div class="card-grid card-grid-2" style="flex:1; gap:14px;">
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-label">MIMIC-IV Textual Sources Available</div>
+        <div class="card">
+          <ul>
+            <li><strong>MIMIC-IV-Note</strong> — Discharge summaries, radiology reports, nursing notes</li>
+            <li><strong>MIMIC-CXR</strong> — Chest X-ray images + structured findings</li>
+            <li><strong>Free-text clinical notes</strong> — Daily progress notes, procedure notes</li>
+            <li><strong>MIMIC-IV-ED</strong> — Emergency department notes (triage text)</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>Potential Encoding Approaches</h4>
+          <ul>
+            <li>ClinicalBERT / BioBERT embeddings from discharge notes</li>
+            <li>Radiology report NLP (structured extraction)</li>
+            <li>BagofWords / TF-IDF baseline</li>
+            <li>Vision encoder for chest X-ray images (ViT / ResNet)</li>
+          </ul>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-label">Infrastructure Decision Pending</div>
+        <div class="card gold">
+          <h4>Option A: Own Database Structure</h4>
+          <p>Build a local structured storage layer to serve visual and textual features alongside the existing tabular pipeline.</p>
+        </div>
+        <div class="card">
+          <h4>Option B: Connect to PhysioNet S3 Bucket</h4>
+          <p>Directly access MIMIC-IV data via PhysioNet's AWS S3 infrastructure — reduces local storage requirements but requires streaming.</p>
+        </div>
+        <div class="card">
+          <h4>Option C: Backend + Web App</h4>
+          <p>Build a lightweight backend API to serve model results and feature exploration through a web interface (planned concurrent track).</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>Planned: MIMIC-IV-Note / MIMIC-CXR integration &nbsp;·&nbsp; Infrastructure TBD</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 11 — GRU MODEL ARCHITECTURE
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Simple DL Model — Hybrid GRU + MLP Architecture</h2>
+    <span class="header-tag">07_model_gru.py</span>
+  </div>
+  <div class="slide-body" style="flex-direction:row; gap:16px;">
+    <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
+      <div class="section-label">Architecture Overview</div>
+
+      <!-- GRU Branch -->
+      <div style="border:1px solid var(--border); border-radius:6px; padding:12px; background:#f8fafc;">
+        <div style="font-size:11px; color:var(--uni-blue); font-weight:700; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:8px;">Branch A — GRU Encoder (Time-Series)</div>
+        <div class="arch-block small" style="background:#004f8c;">Input: (batch, 48 h, 12 vitals)</div>
+        <div class="arch-arrow">↓</div>
+        <div class="arch-block small" style="background:#0066b2;">Stacked GRU · hidden=64 · layers=2 · dropout=0.3</div>
+        <div class="arch-arrow">↓</div>
+        <div class="arch-block small" style="background:#0074c2;">GRU Hidden State: 64-dim</div>
+      </div>
+
+      <!-- Static Branch -->
+      <div style="border:1px solid var(--border); border-radius:6px; padding:12px; background:#f8fafc;">
+        <div style="font-size:11px; color:var(--green); font-weight:700; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:8px;">Branch B — MLP (Static Features)</div>
+        <div class="arch-block small" style="background:#2e7d32;">Input: (batch, 168 features)</div>
+        <div class="arch-arrow">↓</div>
+        <div class="arch-block small" style="background:#388e3c;">Linear(168→64) → ReLU → Dropout(0.3)</div>
+        <div class="arch-arrow">↓</div>
+        <div class="arch-block small" style="background:#43a047;">Static Embedding: 64-dim</div>
+      </div>
+
+      <!-- Fusion -->
+      <div style="border:1px solid var(--border); border-radius:6px; padding:12px; background:#f8fafc;">
+        <div style="font-size:11px; color:#6a1b9a; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:8px;">Fusion + Classifier</div>
+        <div class="arch-block small" style="background:#7b1fa2;">Concat(GRU[64] ‖ Static[64]) = 128-dim</div>
+        <div class="arch-arrow">↓</div>
+        <div class="arch-block small" style="background:#8e24aa;">Linear(128→32) → ReLU → Dropout(0.3)</div>
+        <div class="arch-arrow">↓</div>
+        <div class="arch-block small" style="background:#9c27b0;">Output: Sigmoid → P(LOS &gt; 7 days)</div>
+      </div>
+    </div>
+
+    <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
+      <div class="section-label">Training Hyperparameters</div>
+      <table class="data-table" style="font-size:12px; flex:0 0 auto;">
+        <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Loss Function</td><td>BCEWithLogitsLoss</td></tr>
+          <tr><td>Class weight (pos_weight)</td><td><strong>3.23</strong> (n_neg / n_pos)</td></tr>
+          <tr><td>Optimizer</td><td>Adam, lr = 0.001</td></tr>
+          <tr><td>Batch Size</td><td>64</td></tr>
+          <tr><td>Epochs</td><td>30</td></tr>
+          <tr><td>Dropout</td><td>0.3 (all dropout layers)</td></tr>
+          <tr><td>Model Parameters</td><td>~38,000</td></tr>
+          <tr><td>Device</td><td>GPU (CUDA) if available</td></tr>
+          <tr><td>Random Seed</td><td>42</td></tr>
+          <tr><td>Best Checkpoint</td><td>Epoch 12 (best val F1)</td></tr>
+        </tbody>
+      </table>
+
+      <div class="section-label">Design Rationale</div>
+      <div class="card">
+        <ul>
+          <li>GRU branch processes the <strong>48h vital sign sequences</strong> to capture temporal dynamics (trends, deterioration)</li>
+          <li>Static MLP processes <strong>demographics, diagnoses, medications</strong></li>
+          <li>Fusion captures <strong>interaction</strong> between temporal and static factors</li>
+          <li>Class weighting addresses <strong>3.2:1 imbalance</strong> without oversampling</li>
+          <li>Early stopping via <strong>validation F1</strong> as primary metric</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>07_model_gru.py &nbsp;·&nbsp; PyTorch &nbsp;·&nbsp; ~38K parameters</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 12 — TRAINING CURVES
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Evaluation — Training Dynamics (30 Epochs)</h2>
+    <span class="header-tag">Validation Metrics</span>
+  </div>
+  <div class="slide-body">
+    <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
+      <div class="section-label">Validation Metrics per Epoch</div>
+      <div style="flex:1; background:#f8fafc; border:1px solid var(--border); border-radius:6px; padding:14px; position:relative;">
+        <canvas id="training-chart" style="width:100%; height:100%;"></canvas>
+      </div>
+      <div class="card-grid card-grid-4" style="flex:0 0 auto; gap:10px;">
+        <div class="metric-box" style="background:var(--uni-blue);">
+          <div class="val">0.617</div>
+          <div class="lbl">Best Val F1 (Ep. 12)</div>
+        </div>
+        <div class="metric-box" style="background:var(--uni-blue-mid);">
+          <div class="val">0.844</div>
+          <div class="lbl">Best AUROC (Ep. 13)</div>
+        </div>
+        <div class="metric-box" style="background:var(--uni-blue-light);">
+          <div class="val">0.638</div>
+          <div class="lbl">Best AUPRC (Ep. 15)</div>
+        </div>
+        <div class="metric-box" style="background:var(--accent-gold);">
+          <div class="val">0.782</div>
+          <div class="lbl">Best Accuracy (Ep. 12)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>training_log.csv &nbsp;·&nbsp; Best checkpoint at epoch 12 (by validation F1)</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 13 — TEST RESULTS
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Initial Evaluation — Test Set Results</h2>
+    <span class="header-tag">Final Model Performance</span>
+  </div>
+  <div class="slide-body">
+    <div class="metric-row" style="flex:0 0 auto; gap:10px;">
+      <div class="metric-box">
+        <div class="val">0.8399</div>
+        <div class="lbl">AUROC</div>
+      </div>
+      <div class="metric-box light-bg">
+        <div class="val">0.6377</div>
+        <div class="lbl">AUPRC</div>
+      </div>
+      <div class="metric-box" style="background:var(--accent-gold);">
+        <div class="val">0.6045</div>
+        <div class="lbl">F1 Score</div>
+      </div>
+      <div class="metric-box green-bg">
+        <div class="val">0.7853</div>
+        <div class="lbl">Recall</div>
+      </div>
+      <div class="metric-box" style="background:var(--text-mid);">
+        <div class="val">0.4915</div>
+        <div class="lbl">Precision</div>
+      </div>
+      <div class="metric-box" style="background:#5c6bc0;">
+        <div class="val">0.7571</div>
+        <div class="lbl">Accuracy</div>
+      </div>
+    </div>
+
+    <div class="card-grid card-grid-2" style="flex:1; gap:14px;">
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-label">Interpretation</div>
+        <div class="card green">
+          <h4>Strengths</h4>
+          <ul>
+            <li><strong>AUROC 0.84</strong> — excellent discrimination between short and long stays; strong baseline for a first model</li>
+            <li><strong>Recall 0.79</strong> — the model catches ~79% of all true long-stay patients; critical for clinical screening</li>
+            <li>Val and test performance are <strong>consistent</strong> — no sign of overfitting despite 30 epochs</li>
+            <li>Training loss monotonically decreases from <strong>0.87 → 0.65</strong></li>
+          </ul>
+        </div>
+        <div class="card orange">
+          <h4>Limitations / Areas to Improve</h4>
+          <ul>
+            <li><strong>Precision 0.49</strong> — about half of positive predictions are false alarms; expected given imbalance (3.2:1)</li>
+            <li>No textual or imaging data yet</li>
+            <li>Single model architecture — no ensembling or comparison yet</li>
+            <li>Calibration not yet evaluated</li>
+          </ul>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-label">Val vs. Test Comparison</div>
+        <table class="data-table" style="font-size:12.5px;">
+          <thead><tr><th>Metric</th><th>Validation</th><th>Test</th><th>Δ</th></tr></thead>
+          <tbody>
+            <tr><td>AUROC</td><td>0.8440</td><td>0.8399</td><td style="color:var(--green);">-0.004</td></tr>
+            <tr><td>AUPRC</td><td>0.6384</td><td>0.6377</td><td style="color:var(--green);">-0.001</td></tr>
+            <tr><td>F1 Score</td><td>0.6167</td><td>0.6045</td><td style="color:var(--green);">-0.012</td></tr>
+            <tr><td>Recall</td><td>0.7416</td><td>0.7853</td><td style="color:var(--green);">+0.044</td></tr>
+            <tr><td>Precision</td><td>0.5278</td><td>0.4915</td><td style="color:var(--orange);">-0.036</td></tr>
+            <tr><td>Accuracy</td><td>0.7821</td><td>0.7571</td><td style="color:var(--orange);">-0.025</td></tr>
+          </tbody>
+        </table>
+        <div class="card" style="background:var(--uni-blue-bg);">
+          <p style="font-size:12px;"><strong>Key insight:</strong> The small gap between validation and test performance confirms that the model generalizes well. Class weighting (pos_weight=3.23) successfully drives high recall despite the class imbalance.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>07_model_gru.py &nbsp;·&nbsp; best_gru_model.pt (epoch 12) &nbsp;·&nbsp; Test set n=4,648</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 14 — OPEN QUESTIONS (Part 1)
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Open Questions for Discussion (1–5)</h2>
+    <span class="header-tag">Discussion</span>
+  </div>
+  <div class="slide-body" style="gap:8px;">
+    <div class="question-item">
+      <div class="q-num">1</div>
+      <div class="q-text">
+        <strong>Anchor Age Calculation</strong>
+        We used the <code style="background:#eee;padding:1px 4px;border-radius:3px;font-size:11px;">anchor_age</code> column directly as the patient's age. You calculated actual age using <code style="background:#eee;padding:1px 4px;border-radius:3px;font-size:11px;">anchor_year</code> as reference year. Is our approach acceptable, or does the age-from-anchor-year method yield meaningfully different values?
+      </div>
+    </div>
+    <div class="question-item">
+      <div class="q-num">2</div>
+      <div class="q-text">
+        <strong>Outlier Removal — Long-Stay Patients (90-day threshold)</strong>
+        We removed stays &gt;90 days. Would a different cutoff (e.g., 150 days) be more appropriate — especially if the goal is to predict clinically significant long-stay patients? What is the trade-off?
+      </div>
+    </div>
+    <div class="question-item">
+      <div class="q-num">3</div>
+      <div class="q-text">
+        <strong>Exclusion of Early Deaths (48h threshold)</strong>
+        We excluded patients who died within 48h of admission to avoid label noise. Would a different threshold (e.g., 5 days) be more appropriate?
+      </div>
+    </div>
+    <div class="question-item">
+      <div class="q-num">4</div>
+      <div class="q-text">
+        <strong>Prediction Time Point</strong>
+        We want to define together at what point in time the prediction should be made. When are medication and diagnosis data typically recorded — day 1, day 3, or later? Should we restrict our feature set to data available up to a specific day?
+      </div>
+    </div>
+    <div class="question-item">
+      <div class="q-num">5</div>
+      <div class="q-text">
+        <strong>Transfers Between Facilities</strong>
+        Transferred patients appear as short stays from a single-hospital view, but may have much longer total system stays. Should we account for this in the label or as a feature?
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>Questions 1–5 of 11 &nbsp;·&nbsp; Open for discussion</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 15 — OPEN QUESTIONS (Part 2)
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Open Questions for Discussion (6–11)</h2>
+    <span class="header-tag">Discussion</span>
+  </div>
+  <div class="slide-body" style="gap:8px;">
+    <div class="question-item">
+      <div class="q-num">6</div>
+      <div class="q-text">
+        <strong>Planned Admissions</strong>
+        How should we treat patients with planned admissions who are told in advance about a specific stay length (e.g., 4 days)? Should these be excluded or handled separately?
+      </div>
+    </div>
+    <div class="question-item">
+      <div class="q-num">7</div>
+      <div class="q-text">
+        <strong>Time-Related Features (intime / outtime) — Data Leakage Risk</strong>
+        Features like <code style="background:#eee;padding:1px 4px;border-radius:3px;font-size:11px;">intime</code> and <code style="background:#eee;padding:1px 4px;border-radius:3px;font-size:11px;">outtime</code> could cause data leakage. Should we exclude them entirely, or could they be used for time-based splitting only?
+      </div>
+    </div>
+    <div class="question-item">
+      <div class="q-num">8</div>
+      <div class="q-text">
+        <strong>Aggregating Multiple Stays per Patient</strong>
+        We currently use only the first ICU stay. A patient might stay 5 days initially, then be readmitted 4 more times for a total of 50 days. Would aggregating all stays give a more realistic picture?
+      </div>
+    </div>
+    <div class="question-item">
+      <div class="q-num">9</div>
+      <div class="q-text">
+        <strong>Classification Boundary — Exactly 7 Days</strong>
+        In our binary classification, does a stay of exactly 7.0 days count as "under 7 days" (negative) or "over 7 days" (positive)? Currently: <strong>&gt;7 days = positive</strong>, so exactly 7 = negative.
+      </div>
+    </div>
+    <div class="question-item">
+      <div class="q-num">10</div>
+      <div class="q-text">
+        <strong>Stratified Splitting &amp; Subgroup Distribution</strong>
+        We stratified on the binary label but did not verify balanced subgroup distribution (e.g., circulatory disease patients) across splits. Should we check this explicitly?
+      </div>
+    </div>
+    <div class="question-item">
+      <div class="q-num">11</div>
+      <div class="q-text">
+        <strong>Repository Access</strong>
+        The repository is currently private (MIMIC-IV data should not be public). Would you like access? Please share your GitHub handle and we will add you.
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>Questions 6–11 of 11 &nbsp;·&nbsp; Open for discussion</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 16 — NEXT STEPS
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Next Steps</h2>
+    <span class="header-tag">Roadmap</span>
+  </div>
+  <div class="slide-body">
+    <div class="card-grid card-grid-2" style="flex:1; gap:14px;">
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-label">Data &amp; Infrastructure</div>
+        <div class="card">
+          <h4>Visual / Textual Data Integration</h4>
+          <ul>
+            <li>Evaluate: own structured DB vs. PhysioNet S3 bucket connection</li>
+            <li>Integrate MIMIC-IV-Note (clinical notes, discharge summaries)</li>
+            <li>Integrate MIMIC-CXR (chest X-ray images)</li>
+            <li>NLP feature extraction (ClinicalBERT embeddings)</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>Backend for Communication</h4>
+          <ul>
+            <li>REST API to serve model predictions</li>
+            <li>Feature engineering pipeline as a service</li>
+            <li>Versioned model registry</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>Web App for Result Presentation</h4>
+          <ul>
+            <li>Interactive prediction dashboard</li>
+            <li>Patient-level explanations (SHAP / LIME)</li>
+            <li>Model performance monitoring</li>
+          </ul>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-label">Model Improvements</div>
+        <div class="card green">
+          <h4>Planned Model Experiments</h4>
+          <ul>
+            <li>Stronger baseline: XGBoost / LightGBM on tabular features</li>
+            <li>LSTM variants, Transformer-based time-series encoders</li>
+            <li>Multimodal fusion with text embeddings</li>
+            <li>Hyperparameter search (learning rate, hidden sizes, dropout)</li>
+            <li>Calibration: Platt scaling / isotonic regression</li>
+            <li>Subgroup analysis: performance by ICU type, primary diagnosis</li>
+            <li>Explainability: SHAP feature importance across modalities</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>Evaluation Extensions</h4>
+          <ul>
+            <li>Confusion matrix + calibration curves</li>
+            <li>Subgroup fairness analysis</li>
+            <li>Multi-class LOS regression (actual days, not just binary)</li>
+            <li>Compare against clinical scoring systems (APACHE, SOFA)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="flex:0 0 auto; background:var(--uni-blue); color:white; text-align:center; padding:16px;">
+      <div style="font-size:16px; font-weight:700;">Goal: Multimodal, Explainable LOS Prediction</div>
+      <div style="font-size:13px; opacity:0.75; margin-top:4px;">Tabular + Time-Series + Clinical Notes + Chest X-Ray &nbsp;→&nbsp; Interpretable predictions for clinical decision support</div>
+    </div>
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>Team Project FSS 2026 &nbsp;·&nbsp; MIMIC-IV ICU LOS Prediction</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 17 — THANK YOU
+════════════════════════════════════════════════════════════════ -->
+<div class="slide title-slide">
+  <div class="top-bar">
+    <span class="logo-text">UNIVERSITY OF MANNHEIM &nbsp;·&nbsp; Team Project FSS 2026</span>
+    <span class="date-text">April 2026</span>
+  </div>
+  <div class="content">
+    <div class="tag-line">Questions &amp; Discussion</div>
+    <h1>Thank You</h1>
+    <div class="subtitle">We are happy to answer questions and discuss any of the 11 open points raised today.</div>
+    <div class="meta" style="margin-top:32px;">
+      <div class="meta-item">
+        <span class="label">Dataset</span>
+        <span class="value">MIMIC-IV v3.1</span>
+      </div>
+      <div class="meta-item">
+        <span class="label">Cohort</span>
+        <span class="value">30,986 ICU stays</span>
+      </div>
+      <div class="meta-item">
+        <span class="label">Best AUROC</span>
+        <span class="value">0.8399 (test set)</span>
+      </div>
+      <div class="meta-item">
+        <span class="label">Best F1</span>
+        <span class="value">0.6045 (test set)</span>
+      </div>
+    </div>
+  </div>
+  <div class="bottom-strip">
+    <span class="ds-chip">University of Mannheim</span>
+    <span class="ds-chip">MIMIC-IV v3.1</span>
+    <span class="ds-chip">PyTorch GRU+MLP</span>
+    <span class="ds-chip">168 Features</span>
+    <span class="ds-chip">AUROC 0.84</span>
+  </div>
+</div>
+
+</div><!-- /slideshow-container -->
+
+<!-- ─── NAVIGATION ─── -->
+<div class="nav-bar">
+  <button onclick="changeSlide(-1)">← Prev</button>
+  <span id="slide-counter">1 / 17</span>
+  <button onclick="changeSlide(1)">Next →</button>
+</div>
+
+<script>
+  let current = 0;
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+
+  function showSlide(n) {
+    slides[current].classList.remove('active');
+    current = (n + total) % total;
+    slides[current].classList.add('active');
+    document.getElementById('slide-counter').textContent = (current + 1) + ' / ' + total;
+    if (current === 11) drawTrainingChart(); // chart slide is index 11
+  }
+
+  function changeSlide(dir) { showSlide(current + dir); }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') changeSlide(1);
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') changeSlide(-1);
+  });
+
+  // ─── TRAINING CHART ───
+  const trainingData = {
+    epochs:    [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30],
+    loss:      [0.8696,0.8133,0.7922,0.7794,0.7653,0.7577,0.7459,0.7437,0.7343,0.7362,0.7269,0.7209,0.7139,0.7142,0.7106,0.7121,0.6995,0.6991,0.6899,0.6893,0.6831,0.6792,0.6744,0.6669,0.6707,0.6650,0.6623,0.6604,0.6549,0.6525],
+    f1:        [0.5885,0.5927,0.5760,0.5961,0.5822,0.5982,0.5761,0.6007,0.6052,0.5995,0.6096,0.6167,0.6111,0.6160,0.6105,0.6010,0.6016,0.6021,0.6044,0.5990,0.6043,0.5974,0.6051,0.6017,0.6045,0.6112,0.5934,0.6058,0.6117,0.6046],
+    auroc:     [0.8187,0.8197,0.8272,0.8331,0.8341,0.8354,0.8384,0.8402,0.8419,0.8418,0.8424,0.8418,0.8440,0.8426,0.8420,0.8411,0.8389,0.8404,0.8397,0.8414,0.8397,0.8383,0.8397,0.8411,0.8384,0.8366,0.8389,0.8411,0.8406,0.8399],
+    auprc:     [0.5808,0.5878,0.6028,0.6201,0.6189,0.6207,0.6243,0.6278,0.6322,0.6331,0.6306,0.6338,0.6348,0.6353,0.6384,0.6330,0.6245,0.6325,0.6330,0.6360,0.6275,0.6268,0.6281,0.6300,0.6320,0.6329,0.6379,0.6377,0.6397,0.6377],
+  };
+
+  let chartDrawn = false;
+
+  function drawTrainingChart() {
+    if (chartDrawn) return;
+    chartDrawn = true;
+    const canvas = document.getElementById('training-chart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    canvas.width = canvas.parentElement.offsetWidth - 28;
+    canvas.height = canvas.parentElement.offsetHeight - 28;
+    const W = canvas.width, H = canvas.height;
+    const pad = { top: 20, right: 80, bottom: 40, left: 52 };
+    const cw = W - pad.left - pad.right;
+    const ch = H - pad.top - pad.bottom;
+    const n = trainingData.epochs.length;
+
+    ctx.clearRect(0, 0, W, H);
+
+    function toX(i) { return pad.left + (i / (n-1)) * cw; }
+    function toY(v, lo, hi) { return pad.top + ch - ((v - lo) / (hi - lo)) * ch; }
+
+    // Grid
+    ctx.strokeStyle = '#e0e8f0';
+    ctx.lineWidth = 1;
+    for (let y = 0; y <= 5; y++) {
+      const yy = pad.top + (y / 5) * ch;
+      ctx.beginPath(); ctx.moveTo(pad.left, yy); ctx.lineTo(pad.left + cw, yy); ctx.stroke();
+    }
+    for (let x = 0; x < n; x += 5) {
+      const xx = toX(x);
+      ctx.beginPath(); ctx.moveTo(xx, pad.top); ctx.lineTo(xx, pad.top + ch); ctx.stroke();
+    }
+
+    // Axes
+    ctx.strokeStyle = '#8899aa'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, pad.top + ch); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pad.left, pad.top + ch); ctx.lineTo(pad.left + cw, pad.top + ch); ctx.stroke();
+
+    // X ticks + labels
+    ctx.fillStyle = '#6b7d8e'; ctx.font = '11px Segoe UI,Arial'; ctx.textAlign = 'center';
+    [0,4,9,14,19,24,29].forEach(i => {
+      const xx = toX(i);
+      ctx.fillText(i+1, xx, pad.top + ch + 15);
+    });
+    ctx.fillText('Epoch', pad.left + cw / 2, pad.top + ch + 30);
+
+    // Draw series
+    const series = [
+      { data: trainingData.f1,    lo:0.55, hi:0.90, color:'#003764', label:'F1 (val)', dash:false },
+      { data: trainingData.auroc, lo:0.55, hi:0.90, color:'#0090d4', label:'AUROC', dash:false },
+      { data: trainingData.auprc, lo:0.55, hi:0.90, color:'#c8a84b', label:'AUPRC', dash:true },
+      { data: trainingData.loss,  lo:0.55, hi:0.90, color:'#c62828', label:'Train Loss', dash:true },
+    ];
+
+    const lo = 0.55, hi = 0.90;
+
+    // Y axis labels
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 7; i++) {
+      const v = lo + i * (hi - lo) / 7;
+      const yy = toY(v, lo, hi);
+      ctx.fillText(v.toFixed(2), pad.left - 6, yy + 4);
+    }
+
+    series.forEach(s => {
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = s.data === trainingData.f1 || s.data === trainingData.auroc ? 2.5 : 1.8;
+      ctx.setLineDash(s.dash ? [5,3] : []);
+      ctx.beginPath();
+      s.data.forEach((v, i) => {
+        const x = toX(i), y = toY(v, lo, hi);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+
+    // Mark best F1 (epoch 12, index 11)
+    const bx = toX(11), by = toY(trainingData.f1[11], lo, hi);
+    ctx.fillStyle = '#003764';
+    ctx.beginPath(); ctx.arc(bx, by, 5, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#003764'; ctx.font = 'bold 11px Segoe UI,Arial'; ctx.textAlign = 'left';
+    ctx.fillText('Best F1 = 0.617', bx + 8, by - 4);
+
+    // Legend
+    ctx.textAlign = 'left'; ctx.font = '11px Segoe UI,Arial';
+    series.forEach((s, i) => {
+      const lx = pad.left + cw + 8, ly = pad.top + 20 + i * 22;
+      ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.setLineDash(s.dash ? [5,3] : []);
+      ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx + 16, ly); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#3a4a5c';
+      ctx.fillText(s.label, lx + 20, ly + 4);
+    });
+  }
+
+  // Draw chart if it's the first active slide
+  if (current === 11) drawTrainingChart();
+</script>
+</body>
+</html>

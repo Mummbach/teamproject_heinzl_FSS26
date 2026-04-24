@@ -167,7 +167,7 @@ shap_model.eval()
 
 print(f"\nBuilding background set (n={BG_SIZE})...")
 rng = np.random.default_rng(SEED)
-bg_idx     = rng.choice(len(train_ds), size=BG_SIZE, replace=False)
+bg_idx     = rng.choice(len(train_ds), size=min(BG_SIZE, len(train_ds)), replace=False)
 bg_ts      = torch.tensor(train_ds.ts_arr[bg_idx]).to(DEVICE)
 bg_static  = torch.tensor(train_ds.static_arr[bg_idx]).to(DEVICE)
 
@@ -209,8 +209,12 @@ def compute_shap_for_loader(loader, dataset_name):
 
     print()
 
-    static_shap_arr = np.vstack(all_static_shap)   # (N, n_static_feats)
-    ts_shap_arr     = np.vstack(all_ts_shap)        # (N, n_ts_feats)
+    static_shap_arr = np.vstack(all_static_shap)
+    if static_shap_arr.ndim == 3:
+        static_shap_arr = static_shap_arr.squeeze(-1)   # (N, n_static_feats)
+    ts_shap_arr = np.vstack(all_ts_shap)
+    if ts_shap_arr.ndim == 3:
+        ts_shap_arr = ts_shap_arr.squeeze(-1)       # (N, n_ts_feats)
 
     df_static = pd.DataFrame(static_shap_arr, columns=STATIC_FEATURES)
     df_ts     = pd.DataFrame(ts_shap_arr,

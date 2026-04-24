@@ -310,3 +310,37 @@ log_df = pd.DataFrame(log_rows)
 log_df.to_csv(OUTPUT_DIR / "training_log.csv", index=False)
 print(f"\nSaved: output/best_gru_model.pt")
 print(f"Saved: output/training_log.csv")
+
+
+# ── B1: Save predictions.parquet ──────────────────────────────────────
+# Saves stay_id → y_pred (binary), y_prob (sigmoid probability) for
+# every split so that downstream scripts (SHAP, dashboard) can load them
+# without re-running the model.
+
+@torch.no_grad()
+def get_predictions(model, loader, stay_ids):
+    model.eval()
+    all_logits = []
+    for ts, static, _ in loader:
+        ts, static = ts.to(DEVICE), static.to(DEVICE)
+        all_logits.append(model(ts, static).cpu().numpy())
+    logits = np.concatenate(all_logits)
+    probs  = 1 / (1 + np.exp(-logits))
+    preds  = (probs >= 0.5).astype(int)
+    return pd.DataFrame({"stay_id": stay_ids, "y_prob": probs, "y_pred": preds})
+
+
+pred_rows = []
+for split_name, X_split, y_split, loader in [
+    ("train", X_train, y_train, train_loader),
+    ("val",   X_val,   y_val,   val_loader),
+    ("test",  X_test,  y_test,  test_loader),
+]:
+    stay_ids = X_split["stay_id"].values
+    df_pred  = get_predictions(model, loader, stay_ids)
+    df_pred["split"] = split_name
+    pred_rows.append(df_pred)
+
+predictions = pd.concat(pred_rows, ignore_index=True)
+predictions.to_parquet(OUTPUT_DIR / "predictions.parquet", index=False)
+print(f"Saved: output/predictions.parquet  ({len(predictions):,} stays)")

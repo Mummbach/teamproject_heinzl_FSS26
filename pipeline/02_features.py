@@ -322,17 +322,30 @@ ts_wide = ts_summary.pivot_table(
 ts_wide.columns = [f"{feat}_{stat}" for stat, feat in ts_wide.columns]
 ts_wide = ts_wide.reset_index()
 
-# Add binary missingness flags (1 = no measurements at all in 48h)
+# Add binary missingness flags (-1 = no measurements at all in 48h, 0 = data present).
+# A1: -1 instead of 1 because 1 is a valid measurement value (e.g. GCS Eye open = 1).
 for feat in TS_FEATURES:
     count_col   = f"{feat}_count"
     missing_col = f"{feat}_missing"
     if count_col in ts_wide.columns:
-        ts_wide[missing_col] = (ts_wide[count_col].isna() | (ts_wide[count_col] == 0)).astype(int)
+        ts_wide[missing_col] = np.where(
+            ts_wide[count_col].isna() | (ts_wide[count_col] == 0), -1, 0
+        )
     else:
-        ts_wide[missing_col] = 1
+        ts_wide[missing_col] = -1
 # Drop count columns (served only to build missingness flags)
 count_cols = [c for c in ts_wide.columns if c.endswith("_count")]
 ts_wide = ts_wide.drop(columns=count_cols)
+
+# A3: Remove GCS aggregate columns — GCS is captured as hourly time series in timeseries.parquet.
+# Keeping only _missing flags; aggregate stats would duplicate the temporal signal already
+# available to the GRU encoder.
+GCS_FEATS     = ["gcs_eye", "gcs_verbal", "gcs_motor"]
+STAT_SUFFIXES = ["mean", "median", "std", "min", "max", "first", "last", "slope"]
+gcs_agg_cols  = [f"{f}_{s}" for f in GCS_FEATS for s in STAT_SUFFIXES
+                 if f"{f}_{s}" in ts_wide.columns]
+ts_wide = ts_wide.drop(columns=gcs_agg_cols)
+print(f"  A3: dropped {len(gcs_agg_cols)} GCS aggregate columns (kept _missing flags)")
 
 # Merge with full cohort (ensures every stay has a row, even with no vitals)
 ts_features = cohort[["stay_id"]].merge(ts_wide, on="stay_id", how="left")
@@ -374,7 +387,8 @@ if uo_chunks:
         urine_total="sum", urine_mean="mean", urine_max="max",
     ).reset_index()
     ts_features = ts_features.merge(uo_summary, on="stay_id", how="left")
-    ts_features["urine_missing"] = ts_features["urine_total"].isna().astype(int)
+    # A1: -1 = no urine data in 48h, 0 = data present
+    ts_features["urine_missing"] = np.where(ts_features["urine_total"].isna(), -1, 0)
     ts_features[["urine_total", "urine_mean", "urine_max"]] = (
         ts_features[["urine_total", "urine_mean", "urine_max"]].fillna(0.0)
     )
@@ -382,8 +396,15 @@ else:
     ts_features["urine_total"]   = 0.0
     ts_features["urine_mean"]    = 0.0
     ts_features["urine_max"]     = 0.0
-    ts_features["urine_missing"] = 1
+    ts_features["urine_missing"] = -1
     print("  WARNING: No urine output data found.")
+
+# A2: Remove urine aggregate columns — urine is captured as hourly time series in
+# timeseries.parquet and processed by the GRU encoder. Keeping only urine_missing flag.
+urine_agg_cols = [c for c in ["urine_total", "urine_mean", "urine_max"]
+                  if c in ts_features.columns]
+ts_features = ts_features.drop(columns=urine_agg_cols)
+print(f"  A2: dropped {len(urine_agg_cols)} urine aggregate columns (kept urine_missing)")
 
 # Report coverage
 vital_cols = [c for c in ts_features.columns if c.endswith("_missing")]
@@ -395,6 +416,18 @@ for mc in sorted(vital_cols):
 
 n_feature_cols = len([c for c in ts_features.columns if c != "stay_id"])
 print(f"\n  Total aggregate features: {n_feature_cols}")
+
+# A3: Coverage report for GCS and urine (measurement frequency analysis)
+print(f"\n  GCS & urine coverage (% of stays with ≥1 measurement in 48h):")
+for feat, miss_col in [
+    ("gcs_eye",      "gcs_eye_missing"),
+    ("gcs_verbal",   "gcs_verbal_missing"),
+    ("gcs_motor",    "gcs_motor_missing"),
+    ("urine_output", "urine_missing"),
+]:
+    if miss_col in ts_features.columns:
+        pct = (ts_features[miss_col] == 0).mean() * 100
+        print(f"    {feat:<20} {pct:.1f}%")
 
 ts_features.to_parquet(OUTPUT_DIR / "ts_features.parquet", index=False)
 print(f"\n  Saved: output/ts_features.parquet")

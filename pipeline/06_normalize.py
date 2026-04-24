@@ -49,9 +49,10 @@ print(f"  test  : {X_test.shape[0]:>7,} stays × {X_test.shape[1]} cols")
 
 feature_cols = [c for c in X_train.columns if c != "stay_id"]
 
-# A column is treated as binary if every non-NaN value in X_train is 0 or 1.
+# A column is treated as binary if every non-NaN value in X_train is in {-1, 0, 1}.
+# -1 is the sentinel for _missing flags (A1 change); 0/1 for all other indicator columns.
 # This reliably captures all ICD, ATC, demographic flags, and _missing indicators.
-binary_cols     = [c for c in feature_cols if X_train[c].dropna().isin([0, 1]).all()]
+binary_cols     = [c for c in feature_cols if X_train[c].dropna().isin([-1, 0, 1]).all()]
 continuous_cols = [c for c in feature_cols if c not in binary_cols]
 
 print(f"\nColumn classification:")

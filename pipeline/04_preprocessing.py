@@ -186,6 +186,14 @@ features_all = (
     .merge(ts_flat, on="stay_id", how="left")
 )
 
+# A9: intime/outtime must never appear as model features — outtime is future information
+# and intime could encode admission-year trends already captured by year_group.
+for leak_col in ["intime", "outtime"]:
+    assert leak_col not in features_all.columns, (
+        f"Data leakage: '{leak_col}' found in feature set — remove it from the merge."
+    )
+print("  intime/outtime not in feature set ✓")
+
 print(f"  demographics : {len(static.columns)-1} features")
 print(f"  ICD          : {len(icd.columns)-1} features")
 print(f"  ATC          : {len(atc.columns)-1} features")
@@ -236,10 +244,12 @@ for name, X_split in [("train", X_train), ("val", X_val), ("test", X_test)]:
 
 # _missing flag columns are excluded from impute_cols (they are binary indicators,
 # not continuous features), but stays with zero chartevents rows get NaN for these
-# columns after the left-merge in 02_features.py. Fill with 1 = "measurement absent".
+# columns after the left-merge in 02_features.py.
+# A1: Fill with -1 = "measurement absent" (-1 is the agreed sentinel, not 1,
+# because 1 is a valid measurement value in scales such as GCS).
 missing_flag_cols = [c for c in all_feature_cols if c.endswith("_missing")]
 for X_split in [X_train, X_val, X_test]:
-    X_split[missing_flag_cols] = X_split[missing_flag_cols].fillna(1)
+    X_split[missing_flag_cols] = X_split[missing_flag_cols].fillna(-1)
 
 # Save imputer values for inference time
 imputer_df = train_medians.reset_index()

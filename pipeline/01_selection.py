@@ -23,6 +23,14 @@ Output:     output/cohort.csv  +  output/cohort_stay_ids.txt
 import pandas as pd
 from config import HOSP_DIR, ICU_DIR, OUTPUT_DIR
 
+# ── Early deaths bias check ───────────────────────────────────────────────────
+# Patients who die between 48h and 7d after ICU admission have los_gt7 = 0,
+# not because they recovered but because they died. This may introduce bias:
+# the model could learn "death signals" as predictors of short stay.
+# True  — exclude these patients (Modell B: bias-reduced cohort)
+# False — keep them (Modell A: current default)
+EXCLUDE_EARLY_DEATHS = True
+
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 # Load raw tables
@@ -96,6 +104,26 @@ death_within_48h = (
 df = df[~death_within_48h]
 print(f"  excl. death within 48h:     {len(df):>7,}  (removed {n - len(df):,})")
 n = len(df)
+
+# Optional: exclude patients who died between 48h and 7d (early deaths bias check).
+# These patients have los_gt7 = 0 due to death, not recovery — potential bias.
+# Set EXCLUDE_EARLY_DEATHS = True to run Modell B for comparison.
+if EXCLUDE_EARLY_DEATHS:
+    death_48h_to_7d = (
+        df["deathtime"].notna() &
+        ((df["deathtime"] - df["intime"]).dt.total_seconds() / 3600 > 48) &
+        ((df["deathtime"] - df["intime"]).dt.total_seconds() / 3600 <= 168)
+    )
+    df = df[~death_48h_to_7d]
+    print(f"  excl. death 48h–7d:         {len(df):>7,}  (removed {n - len(df):,})")
+    n = len(df)
+else:
+    early_deaths = (
+        df["deathtime"].notna() &
+        ((df["deathtime"] - df["intime"]).dt.total_seconds() / 3600 > 48) &
+        ((df["deathtime"] - df["intime"]).dt.total_seconds() / 3600 <= 168)
+    )
+    print(f"  early deaths 48h–7d (kept): {early_deaths.sum():>7,}  (EXCLUDE_EARLY_DEATHS=False)")
 
 # ICU LOS > 90 days
 # Extreme outliers may represent data-quality issues or LTACH transfers.

@@ -71,6 +71,7 @@ RANGE_FILTERS = {
     "gcs_eye":      (1,    4),
     "gcs_verbal":   (1,    5),
     "gcs_motor":    (1,    6),
+    "gcs_total":    (3,   15),
     "urine_output": (0, 5000),
 }
 
@@ -78,7 +79,7 @@ RANGE_FILTERS = {
 TS_FEATURES = [
     "heart_rate", "sbp", "dbp", "map", "resp_rate", "spo2",
     "temperature", "glucose", "gcs_eye", "gcs_verbal", "gcs_motor",
-    "urine_output",
+    "gcs_total", "urine_output",
 ]
 
 # ── ICD-9 numeric ranges → disease category ──────────────────────────────────

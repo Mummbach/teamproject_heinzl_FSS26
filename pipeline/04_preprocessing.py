@@ -2,14 +2,21 @@
 Preprocessing
 =============
 Encodes categorical features, merges all feature files, and applies
-median imputation fitted exclusively on the training split.
+imputation fitted exclusively on the training split.
 
 Steps:
   0. Data quality checks    — duplicate stay_id / hadm_id
   1. Encode demographics    — categorical → binary/numeric (rule-based, no leakage)
   2. Merge features         — demographics + ICD + ATC + time-series
-  3. Impute                 — median fitted on train only, applied to all splits
+  3. Impute                 — fitted on train only, applied to all splits
   4. Save                   — X_train/val/test + y_train/val/test as parquet
+
+Imputation strategy is controlled by IMPUTATION_STRATEGY below.
+Options:
+  "median"  — fast, robust to outliers (default)
+  "mean"    — fast, sensitive to outliers
+  "rf"      — IterativeImputer + RandomForestRegressor; captures feature
+              correlations but is slow on large datasets
 
 No statistics are computed before the split. All imputed values are derived
 solely from training data to prevent data leakage into validation and test sets.
@@ -33,6 +40,16 @@ Output:  output/X_train.parquet    output/y_train.parquet
 import pandas as pd
 import numpy as np
 from config import OUTPUT_DIR
+
+# ── Imputation strategy ───────────────────────────────────────────────────────
+# "median" | "mean" | "rf"
+# Switch here to compare strategies; re-run pipeline and evaluate model performance.
+IMPUTATION_STRATEGY = "median"
+
+# ── Missingness flags ─────────────────────────────────────────────────────────
+# True  — keep _missing binary flags as extra features (recommended with median/mean)
+# False — drop _missing flags (recommended when using -1 sentinel imputation)
+USE_MISSINGNESS_FLAGS = False
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -222,29 +239,52 @@ impute_cols = [
     if not c.endswith("_missing") and X_train[c].isna().any()
 ]
 print(f"\n  Columns to impute: {len(impute_cols)}")
+print(f"  Strategy: {IMPUTATION_STRATEGY}")
 
-# Fit median on training data only
-# fillna(0): fallback for columns where all train values are NaN (median would be NaN)
-train_medians = X_train[impute_cols].median().fillna(0)
+if IMPUTATION_STRATEGY in ("median", "mean"):
+    if IMPUTATION_STRATEGY == "median":
+        fill_values = X_train[impute_cols].median().fillna(0)
+    else:
+        fill_values = X_train[impute_cols].mean().fillna(0)
 
-# Apply to all three splits
-for name, X_split in [("train", X_train), ("val", X_val), ("test", X_test)]:
-    n_before = X_split[impute_cols].isna().sum().sum()
-    X_split[impute_cols] = X_split[impute_cols].fillna(train_medians)
-    n_after = X_split[impute_cols].isna().sum().sum()
-    print(f"  {name:<6}: {n_before:>7,} NaN filled  ({n_after} remaining in impute_cols)")
+    for name, X_split in [("train", X_train), ("val", X_val), ("test", X_test)]:
+        n_before = X_split[impute_cols].isna().sum().sum()
+        X_split[impute_cols] = X_split[impute_cols].fillna(fill_values)
+        n_after = X_split[impute_cols].isna().sum().sum()
+        print(f"  {name:<6}: {n_before:>7,} NaN filled  ({n_after} remaining)")
 
-# _missing flag columns are excluded from impute_cols (they are binary indicators,
-# not continuous features), but stays with zero chartevents rows get NaN for these
-# columns after the left-merge in 02_features.py. Fill with 1 = "measurement absent".
+    imputer_df = fill_values.reset_index()
+    imputer_df.columns = ["feature", "value"]
+    imputer_df.to_parquet(OUTPUT_DIR / "imputer_medians.parquet", index=False)
+
+elif IMPUTATION_STRATEGY == "rf":
+    from sklearn.experimental import enable_iterative_imputer  # noqa: F401
+    from sklearn.impute import IterativeImputer
+    from sklearn.ensemble import RandomForestRegressor
+
+    print("  WARNING: RF imputation is slow on large datasets.")
+    imputer = IterativeImputer(
+        estimator=RandomForestRegressor(n_estimators=10, random_state=42, n_jobs=-1),
+        max_iter=3,
+        random_state=42,
+    )
+    X_train[impute_cols] = imputer.fit_transform(X_train[impute_cols])
+    X_val[impute_cols]   = imputer.transform(X_val[impute_cols])
+    X_test[impute_cols]  = imputer.transform(X_test[impute_cols])
+    print("  RF imputation done.")
+
+else:
+    raise ValueError(f"Unknown IMPUTATION_STRATEGY: {IMPUTATION_STRATEGY!r}")
+
 missing_flag_cols = [c for c in all_feature_cols if c.endswith("_missing")]
-for X_split in [X_train, X_val, X_test]:
-    X_split[missing_flag_cols] = X_split[missing_flag_cols].fillna(1)
-
-# Save imputer values for inference time
-imputer_df = train_medians.reset_index()
-imputer_df.columns = ["feature", "median"]
-imputer_df.to_parquet(OUTPUT_DIR / "imputer_medians.parquet", index=False)
+if USE_MISSINGNESS_FLAGS:
+    for X_split in [X_train, X_val, X_test]:
+        X_split[missing_flag_cols] = X_split[missing_flag_cols].fillna(1)
+else:
+    for X_split in [X_train, X_val, X_test]:
+        X_split.drop(columns=missing_flag_cols, inplace=True)
+    all_feature_cols = [c for c in all_feature_cols if not c.endswith("_missing")]
+    print(f"  Dropped {len(missing_flag_cols)} _missing flag columns")
 
 # Sanity checks
 for name, X_split in [("train", X_train), ("val", X_val), ("test", X_test)]:
@@ -280,6 +320,3 @@ for name, df in splits.items():
     path = OUTPUT_DIR / f"{name}.parquet"
     df.to_parquet(path, index=False)
     print(f"  Saved: output/{name}.parquet  ({len(df):,} rows × {len(df.columns)} cols)")
-
-imputer_path = OUTPUT_DIR / "imputer_medians.parquet"
-print(f"  Saved: output/imputer_medians.parquet  ({len(imputer_df)} features)")

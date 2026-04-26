@@ -41,7 +41,7 @@ np.random.seed(SEED)
 # ── Hourly time-series branch ─────────────────────────────────────────
 # True  — GRU processes 48h × 12 vital features (stündliche Zeitreihe)
 # False — static branch only; GRU is disabled for ablation comparison
-USE_HOURLY_TIMESERIES = False
+USE_HOURLY_TIMESERIES = True
 
 # ── Hyperparameters ───────────────────────────────────────────────────
 BATCH_SIZE    = 64

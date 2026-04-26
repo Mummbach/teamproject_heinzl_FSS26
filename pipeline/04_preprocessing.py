@@ -49,13 +49,13 @@ IMPUTATION_STRATEGY = "median"
 # ── Missingness flags ─────────────────────────────────────────────────────────
 # True  — keep _missing binary flags as extra features (recommended with median/mean)
 # False — drop _missing flags (recommended when using -1 sentinel imputation)
-USE_MISSINGNESS_FLAGS = False
+USE_MISSINGNESS_FLAGS = True
 
 # ── Aggregated vital stats ────────────────────────────────────────────────────
 # True  — include aggregated vital sign stats from ts_features.parquet
 #         (mean, std, slope, etc. per vital over 48h)
 # False — static only: demographics + ICD + ATC
-USE_AGGREGATED_VITALS = False
+USE_AGGREGATED_VITALS = True
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 

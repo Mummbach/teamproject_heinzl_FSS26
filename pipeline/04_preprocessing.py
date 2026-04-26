@@ -51,6 +51,12 @@ IMPUTATION_STRATEGY = "median"
 # False — drop _missing flags (recommended when using -1 sentinel imputation)
 USE_MISSINGNESS_FLAGS = False
 
+# ── Aggregated vital stats ────────────────────────────────────────────────────
+# True  — include aggregated vital sign stats from ts_features.parquet
+#         (mean, std, slope, etc. per vital over 48h)
+# False — static only: demographics + ICD + ATC
+USE_AGGREGATED_VITALS = False
+
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 
@@ -200,13 +206,14 @@ features_all = (
     .merge(static,  on="stay_id", how="left")
     .merge(icd,     on="stay_id", how="left")
     .merge(atc,     on="stay_id", how="left")
-    .merge(ts_flat, on="stay_id", how="left")
 )
+if USE_AGGREGATED_VITALS:
+    features_all = features_all.merge(ts_flat, on="stay_id", how="left")
 
 print(f"  demographics : {len(static.columns)-1} features")
 print(f"  ICD          : {len(icd.columns)-1} features")
 print(f"  ATC          : {len(atc.columns)-1} features")
-print(f"  time-series  : {len(ts_flat.columns)-1} features")
+print(f"  time-series  : {len(ts_flat.columns)-1 if USE_AGGREGATED_VITALS else 0} features {'(disabled)' if not USE_AGGREGATED_VITALS else ''}")
 all_feature_cols = [c for c in features_all.columns if c != "stay_id"]
 print(f"  total        : {len(all_feature_cols)} features")
 

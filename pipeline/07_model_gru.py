@@ -38,6 +38,11 @@ SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 
+# ── Hourly time-series branch ─────────────────────────────────────────
+# True  — GRU processes 48h × 12 vital features (stündliche Zeitreihe)
+# False — static branch only; GRU is disabled for ablation comparison
+USE_HOURLY_TIMESERIES = False
+
 # ── Hyperparameters ───────────────────────────────────────────────────
 BATCH_SIZE    = 64
 EPOCHS        = 30
@@ -117,42 +122,44 @@ class GRUModel(nn.Module):
 
     def __init__(self, ts_input_size: int, static_input_size: int,
                  hidden_size: int, num_layers: int,
-                 static_dim: int, dropout: float):
+                 static_dim: int, dropout: float,
+                 use_gru: bool = True):
         super().__init__()
+        self.use_gru = use_gru
 
-        # GRU processes the 48h vital sequence
-        self.gru = nn.GRU(
-            input_size=ts_input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,        # input: (batch, seq_len, features)
-            dropout=dropout if num_layers > 1 else 0.0,
-        )
+        if use_gru:
+            self.gru = nn.GRU(
+                input_size=ts_input_size,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                batch_first=True,
+                dropout=dropout if num_layers > 1 else 0.0,
+            )
 
-        # Static branch: one hidden layer
         self.static_branch = nn.Sequential(
             nn.Linear(static_input_size, static_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
         )
 
-        # Fusion + output
+        fusion_input = (hidden_size if use_gru else 0) + static_dim
         self.classifier = nn.Sequential(
             nn.Dropout(dropout),
-            nn.Linear(hidden_size + static_dim, 32),
+            nn.Linear(fusion_input, 32),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(32, 1),        # raw logit — BCEWithLogitsLoss handles sigmoid
+            nn.Linear(32, 1),
         )
 
     def forward(self, ts, static):
-        # ts:     (batch, 48, 12)
-        # static: (batch, F)
-        _, h_n = self.gru(ts)               # h_n: (num_layers, batch, hidden_size)
-        gru_out = h_n[-1]                   # last layer hidden state: (batch, hidden_size)
         static_out = self.static_branch(static)
-        fused = torch.cat([gru_out, static_out], dim=1)
-        return self.classifier(fused).squeeze(1)  # (batch,)
+        if self.use_gru:
+            _, h_n  = self.gru(ts)
+            gru_out = h_n[-1]
+            fused   = torch.cat([gru_out, static_out], dim=1)
+        else:
+            fused = static_out
+        return self.classifier(fused).squeeze(1)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -256,7 +263,9 @@ model = GRUModel(
     num_layers       = NUM_LAYERS,
     static_dim       = STATIC_DIM,
     dropout          = DROPOUT,
+    use_gru          = USE_HOURLY_TIMESERIES,
 ).to(DEVICE)
+print(f"GRU branch: {'enabled' if USE_HOURLY_TIMESERIES else 'disabled (static only)'}")
 
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)

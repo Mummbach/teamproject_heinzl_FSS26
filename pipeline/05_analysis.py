@@ -9,6 +9,7 @@ Sections:
   2. Label distribution     — LOS buckets, positive rate per split
   3. Feature analysis       — missing values, binary rates, numeric distributions
   4. Correlations           — top feature correlations with los_gt7 (train only)
+  5. Planned vs. Emergency  — LOS distribution and positive rate by admission type
 
 Run AFTER:  04_preprocessing.py
 Output:     output/analysis/   — txt reports + PNG plots
@@ -237,3 +238,104 @@ if X_train_path.exists():
 print(f"\n{SEP}")
 print("  Done. All outputs in output/analysis/")
 print(SEP)
+
+
+# ── SECTION 5 — PLANNED vs. EMERGENCY ADMISSIONS ─────────────────────────────
+
+print(f"\n{SEP}")
+print("SECTION 5 — Planned vs. Emergency Admissions")
+print(SEP)
+
+cohort5 = pd.read_csv(OUTPUT_DIR / "cohort.csv")
+
+# Group raw admission_type values into three categories
+emergency_types  = {"EW EMER.", "DIRECT EMER."}
+urgent_types     = {"URGENT"}
+planned_types    = {"ELECTIVE", "SURGICAL SAME DAY ADMISSION"}
+observation_types = {"OBSERVATION ADMIT", "EU OBSERVATION",
+                     "DIRECT OBSERVATION", "AMBULATORY OBSERVATION"}
+
+def map_adm_group(val):
+    if val in emergency_types:  return "Emergency"
+    if val in urgent_types:     return "Urgent"
+    if val in planned_types:    return "Planned"
+    if val in observation_types: return "Observation"
+    return "Other"
+
+cohort5["adm_group"] = cohort5["admission_type"].map(map_adm_group)
+
+# ── Text summary ─────────────────────────────────────────────────────────────
+print(f"\n  {'Type':<40} {'N':>7}  {'%':>6}  {'los_gt7 rate':>13}  {'Median LOS':>10}")
+print(f"  {SEP2}")
+for atype, grp in cohort5.groupby("admission_type", sort=False):
+    n    = len(grp)
+    pct  = n / len(cohort5) * 100
+    rate = grp["los_gt7"].mean() * 100
+    med  = grp["los"].median()
+    print(f"  {atype:<40} {n:>7,}  {pct:>5.1f}%  {rate:>12.1f}%  {med:>9.1f}d")
+
+print(f"\n  Grouped summary:")
+print(f"  {'Group':<15} {'N':>7}  {'%':>6}  {'los_gt7 rate':>13}  {'Median LOS':>10}")
+print(f"  {SEP2}")
+group_order = ["Emergency", "Urgent", "Observation", "Planned"]
+for g in group_order:
+    grp  = cohort5[cohort5["adm_group"] == g]
+    n    = len(grp)
+    pct  = n / len(cohort5) * 100
+    rate = grp["los_gt7"].mean() * 100
+    med  = grp["los"].median()
+    print(f"  {g:<15} {n:>7,}  {pct:>5.1f}%  {rate:>12.1f}%  {med:>9.1f}d")
+
+# ── Hypothesis check ─────────────────────────────────────────────────────────
+planned = cohort5[cohort5["adm_group"] == "Planned"]
+emergency = cohort5[cohort5["adm_group"] == "Emergency"]
+urgent = cohort5[cohort5["adm_group"] == "Urgent"]
+planned_rate   = planned["los_gt7"].mean() * 100
+emergency_rate = emergency["los_gt7"].mean() * 100
+urgent_rate    = urgent["los_gt7"].mean() * 100
+
+print(f"\n  Hypothesis: 'few planned admissions have LOS > 7d'")
+print(f"  Planned   los_gt7 rate: {planned_rate:.1f}%")
+print(f"  Emergency los_gt7 rate: {emergency_rate:.1f}%")
+print(f"  Urgent    los_gt7 rate: {urgent_rate:.1f}%")
+if planned_rate < emergency_rate and planned_rate < urgent_rate:
+    print(f"  → CONFIRMED: planned admissions have lowest positive rate")
+    print(f"  → Recommendation: keep admission_type as feature (clear signal)")
+    print(f"    Restricting to Emergency/Urgent only would remove {len(planned):,} stays ({len(planned)/len(cohort5)*100:.1f}%)")
+    print(f"    and discard a useful feature — not recommended")
+else:
+    print(f"  → NOT confirmed: planned admissions do not have lower positive rate")
+
+# ── Plot 1: Positive rate by group ───────────────────────────────────────────
+rates = {g: cohort5[cohort5["adm_group"] == g]["los_gt7"].mean() * 100
+         for g in group_order}
+colors = ["#e06c75", "#e5c07b", "#56b6c2", "#61afef"]
+
+fig, ax = plt.subplots(figsize=(7, 4))
+bars = ax.bar(rates.keys(), rates.values(), color=colors, width=0.5)
+ax.bar_label(bars, fmt="%.1f%%", padding=3, fontsize=9)
+ax.set_ylabel("los_gt7 rate (%)")
+ax.set_title("Positive rate (LOS > 7d) by admission group")
+ax.set_ylim(0, max(rates.values()) * 1.25)
+plt.tight_layout()
+fig.savefig(ANALYSIS_DIR / "admission_positive_rate.png", dpi=120)
+plt.close(fig)
+print(f"\n  Plot saved: analysis/admission_positive_rate.png")
+
+# ── Plot 2: LOS distribution by group ────────────────────────────────────────
+fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharey=False)
+axes = axes.flatten()
+for i, (g, color) in enumerate(zip(group_order, colors)):
+    grp = cohort5[cohort5["adm_group"] == g]["los"].clip(upper=30)
+    axes[i].hist(grp, bins=40, color=color, edgecolor="white", alpha=0.85)
+    axes[i].axvline(7, color="red", linestyle="--", linewidth=1.2, label="7d threshold")
+    rate = cohort5[cohort5["adm_group"] == g]["los_gt7"].mean() * 100
+    axes[i].set_title(f"{g}  (n={len(grp):,}, pos={rate:.1f}%)")
+    axes[i].set_xlabel("LOS (days, clipped 30d)")
+    axes[i].set_ylabel("Count")
+    axes[i].legend(fontsize=8)
+plt.suptitle("LOS distribution by admission group", fontsize=12, y=1.01)
+plt.tight_layout()
+fig.savefig(ANALYSIS_DIR / "admission_los_distribution.png", dpi=120, bbox_inches="tight")
+plt.close(fig)
+print(f"  Plot saved: analysis/admission_los_distribution.png")

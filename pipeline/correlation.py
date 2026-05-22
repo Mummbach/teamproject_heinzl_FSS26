@@ -1,6 +1,23 @@
-# # Feature Correlation Analysis
-# Loads all feature files, merges them, and runs Pearson correlation between all features.
-# Pairs above a threshold of **0.8** are listed and one of each pair is removed.
+"""
+Feature Correlation Analysis — ICU Feature Redundancy Check
+============================================================
+Loads all engineered features, merges them, and computes pairwise Pearson
+correlation. Feature pairs above |r| > 0.8 are identified and one of each
+pair is flagged for removal to reduce redundancy before model training.
+
+Run AFTER:  02_features.py  (ts_features, icd_features, atc_features must exist)
+            01_selection.py (cohort.csv must exist)
+
+Note: This is an exploratory/analysis step — it does not write output files.
+      Inspect results to inform feature selection in downstream steps.
+
+Input:   output/ts_features.parquet
+         output/icd_features.parquet
+         output/atc_features.parquet
+         output/cohort.csv
+
+Output:  (none — prints correlation pairs and shows heatmap plot)
+"""
 
 import sys
 import pandas as pd

@@ -16,11 +16,13 @@ Column names (derived from baseline pipeline — do not guess):
                 icu_micu_sicu, icu_tsicu, icu_neuro_sicu
 """
 
+import pickle
 import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 sys.path.append(str(Path(__file__).parent.parent))
 from config import ICD_CATEGORIES
@@ -77,6 +79,38 @@ def _hard_filter(target_idx: int, train_df: pd.DataFrame) -> np.ndarray:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SOFT FILTER (AGE)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _age_filter(target_idx: int, train_df: pd.DataFrame,
+                candidates: np.ndarray, age_tol: int) -> np.ndarray:
+    """
+    From the hard-filtered candidates, keep only those within age_tol years
+    of the target patient's age.
+
+    Called soft filter because it uses a tolerance window rather than an
+    exact match — patients aged 60 and 68 are still comparable; patients
+    aged 25 and 80 are not.
+
+    Args:
+        target_idx : row index of the target patient in train_df.
+        train_df   : DataFrame containing an 'age' column.
+        candidates : row indices surviving the hard filter.
+        age_tol    : maximum absolute age difference allowed (years).
+
+    Returns:
+        np.ndarray of row indices passing both hard and age filter.
+    """
+    target_age = train_df.iloc[target_idx]["age"]
+
+    # Keep only candidates whose age is within the tolerance window
+    candidate_ages = train_df.iloc[candidates]["age"].values
+    within_tol = np.abs(candidate_ages - target_age) <= age_tol
+
+    return candidates[within_tol]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # PEER RETRIEVAL
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -117,7 +151,85 @@ def get_peers(
                                 target in embedding space.
     """
     # Step 1: hard filter — same ICD chapter and ICU type
-    # Step 2: age filter — within age_tol years  [TODO: implement next]
-    # Step 3: nearest neighbours per class       [TODO: implement next]
     candidates = _hard_filter(target_idx, train_df)
-    raise NotImplementedError(f"{len(candidates)} candidates after hard filter — steps 2–3 not yet implemented")
+
+    # Step 2: soft filter — within age_tol years
+    candidates = _age_filter(target_idx, train_df, candidates, age_tol)
+
+    # Step 3: split by outcome label
+    labels_candidates = train_labels[candidates]
+    pos_candidates = candidates[labels_candidates == 1]  # prolonged stay
+    neg_candidates = candidates[labels_candidates == 0]  # not prolonged
+
+    # Step 4: rank each group by L2 distance in embedding space, take top k
+    # Nearest neighbours are preferred over random — they are the most similar
+    # patients within the filtered pool, which is what peer retrieval should use.
+    target_emb = train_features[target_idx]
+
+    def _nearest_k(idxs: np.ndarray) -> list[int]:
+        if len(idxs) == 0:
+            return []
+        dists = np.linalg.norm(train_features[idxs] - target_emb, axis=1)
+        top_k = idxs[np.argsort(dists)[:k]]
+        return top_k.tolist()
+
+    positive_peers = _nearest_k(pos_candidates)
+    negative_peers = _nearest_k(neg_candidates)
+
+    return positive_peers, negative_peers
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN — build peer groups for all training patients
+# ══════════════════════════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    from config import OUTPUT_DIR
+    from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, K_PEERS, AGE_TOLERANCE
+
+    # ── Load embeddings ───────────────────────────────────────────────────────
+    print("Loading embeddings...")
+    with open(EMBEDDING_CACHE_PATH, "rb") as f:
+        emb_dict = pickle.load(f)
+
+    # ── Load training data ────────────────────────────────────────────────────
+    print("Loading training data...")
+    # Use unscaled data as train_df — filtering only needs age, ICD, and ICU
+    # columns which are binary (0/1); scaling would distort those values.
+    train_df = pd.read_parquet(OUTPUT_DIR / "X_train.parquet")
+    y_train  = pd.read_parquet(OUTPUT_DIR / "y_train.parquet")
+
+    stay_ids       = train_df["stay_id"].values
+    train_features = np.stack([emb_dict[sid] for sid in stay_ids])
+    train_labels   = y_train.set_index("stay_id").loc[stay_ids, "los_gt7"].values
+
+    print(f"  Patients      : {len(train_df):,}")
+    print(f"  Embedding dim : {train_features.shape[1]}")
+    print(f"  K peers       : {K_PEERS}  |  Age tolerance : ±{AGE_TOLERANCE} years")
+
+    # ── Build peer groups ─────────────────────────────────────────────────────
+    print("\nBuilding peer groups...")
+    peer_cache = {}          # {target_idx: (pos_peers, neg_peers)}
+    n_short_pos = 0          # patients with fewer than K positive peers
+    n_short_neg = 0          # patients with fewer than K negative peers
+    n_empty     = 0          # patients with 0 peers on either side
+
+    for i in tqdm(range(len(train_df)), desc="Peers", unit="patient"):
+        pos, neg = get_peers(i, train_df, train_features, train_labels,
+                             k=K_PEERS, age_tol=AGE_TOLERANCE)
+        peer_cache[int(stay_ids[i])] = (pos, neg)
+
+        if len(pos) < K_PEERS: n_short_pos += 1
+        if len(neg) < K_PEERS: n_short_neg += 1
+        if len(pos) == 0 or len(neg) == 0: n_empty += 1
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    print(f"\nDone. Results for {len(peer_cache):,} patients:")
+    print(f"  Patients with <{K_PEERS} positive peers : {n_short_pos:,}")
+    print(f"  Patients with <{K_PEERS} negative peers : {n_short_neg:,}")
+    print(f"  Patients with 0 peers on either side  : {n_empty:,}")
+
+    # ── Save ──────────────────────────────────────────────────────────────────
+    with open(PEER_CACHE_PATH, "wb") as f:
+        pickle.dump(peer_cache, f)
+    print(f"\nSaved: {PEER_CACHE_PATH}")

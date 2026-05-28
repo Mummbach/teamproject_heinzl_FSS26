@@ -84,3 +84,46 @@ class PRDNet(nn.Module):
         logit = self.head(combined).squeeze(-1)   # (batch,)
 
         return logit, delta_pos, delta_neg
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SMOKE TEST
+# ══════════════════════════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    BATCH      = 8
+    INPUT_DIM  = 128
+    HIDDEN_DIM = 64
+
+    model = PRDNet(input_dim=INPUT_DIM, hidden_dim=HIDDEN_DIM)
+    model.eval()
+
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"PRDNet initialised")
+    print(f"  input_dim  : {INPUT_DIM}")
+    print(f"  hidden_dim : {HIDDEN_DIM}")
+    print(f"  Parameters : {total_params:,}")
+
+    # Fake inputs matching expected shapes
+    x         = torch.randn(BATCH, INPUT_DIM)
+    pos_proto = torch.randn(BATCH, HIDDEN_DIM)
+    neg_proto = torch.randn(BATCH, HIDDEN_DIM)
+
+    print(f"\nRunning forward pass (batch_size={BATCH})...")
+    logit, delta_pos, delta_neg = model(x, pos_proto, neg_proto)
+
+    print(f"\nOutput shapes:")
+    print(f"  logit     : {tuple(logit.shape)}  — expected ({BATCH},)")
+    print(f"  delta_pos : {tuple(delta_pos.shape)}  — expected ({BATCH}, {HIDDEN_DIM})")
+    print(f"  delta_neg : {tuple(delta_neg.shape)}  — expected ({BATCH}, {HIDDEN_DIM})")
+
+    print(f"\nLogit stats (random weights — values not meaningful yet):")
+    print(f"  min  : {logit.min().item():.4f}")
+    print(f"  max  : {logit.max().item():.4f}")
+    print(f"  mean : {logit.mean().item():.4f}")
+
+    assert logit.shape     == (BATCH,),            f"logit shape wrong: {logit.shape}"
+    assert delta_pos.shape == (BATCH, HIDDEN_DIM), f"delta_pos shape wrong: {delta_pos.shape}"
+    assert delta_neg.shape == (BATCH, HIDDEN_DIM), f"delta_neg shape wrong: {delta_neg.shape}"
+
+    print("\nAll shape assertions passed.")

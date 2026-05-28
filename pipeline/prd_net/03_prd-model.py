@@ -44,8 +44,18 @@ class PRDNet(nn.Module):
         )
 
     def encode(self, x):
-        """Project a patient embedding into the learned representation space."""
-        pass
+        """
+        Project a patient embedding into the learned representation space.
+
+        Args:
+            x : (batch, input_dim) — flat patient embeddings
+
+        Returns:
+            (batch, hidden_dim) — encoded representation
+        """
+        # GRU expects (batch, seq_len, input_size); unsqueeze adds seq_len=1
+        _, h_n = self.encoder(x.unsqueeze(1))
+        return h_n[-1]  # (batch, hidden_dim)
 
     def forward(self, x, pos_proto, neg_proto):
         """

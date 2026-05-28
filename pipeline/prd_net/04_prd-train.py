@@ -29,9 +29,10 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from torch.utils.data import Dataset, DataLoader
 
 sys.path.append(str(Path(__file__).parent.parent))
-from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH
+from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -58,7 +59,44 @@ def load_caches() -> tuple[dict, dict]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 2 — Compute peer prototypes
+# STEP 2 — Dataset and DataLoader
+# ══════════════════════════════════════════════════════════════════════════════
+
+class PRDDataset(Dataset):
+    """
+    Lightweight dataset for PRD-Net training.
+    Works directly from the embedding cache — no raw time-series needed.
+
+    Returns per patient: (embedding tensor, label, stay_id)
+    stay_id is needed at training time to look up peers in compute_prototypes.
+    """
+
+    def __init__(self, stay_ids: np.ndarray, embedding_cache: dict,
+                 labels: np.ndarray):
+        self.stay_ids = stay_ids
+        self.embeddings = np.stack([embedding_cache[int(sid)] for sid in stay_ids])
+        self.labels = labels.astype(np.float32)
+
+    def __len__(self):
+        return len(self.stay_ids)
+
+    def __getitem__(self, idx):
+        return (
+            torch.tensor(self.embeddings[idx], dtype=torch.float32),
+            torch.tensor(self.labels[idx],     dtype=torch.float32),
+            int(self.stay_ids[idx]),   # stay_id passed through for peer lookup
+        )
+
+
+def make_dataloader(stay_ids: np.ndarray, embedding_cache: dict,
+                    labels: np.ndarray, shuffle: bool = True) -> DataLoader:
+    """Build a DataLoader from the embedding cache for a given set of patients."""
+    dataset = PRDDataset(stay_ids, embedding_cache, labels)
+    return DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=shuffle)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 3 — Compute peer prototypes
 # ══════════════════════════════════════════════════════════════════════════════
 
 def compute_prototypes(

@@ -33,6 +33,10 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score,
+    f1_score, roc_auc_score, average_precision_score,
+)
 
 sys.path.append(str(Path(__file__).parent.parent))
 from config import OUTPUT_DIR
@@ -215,18 +219,45 @@ def train_epoch(model, dataloader, peer_cache, embedding_cache,
         train_stay_ids, optimizer, loss_fn  — passed straight to train_step
 
     Returns:
-        mean loss over all batches as a float
+        dict with loss, accuracy, precision, recall, f1, auroc, auprc
     """
     model.train()
-    total_loss = 0.0
+    total_loss  = 0.0
+    all_logits  = []
+    all_labels  = []
 
     for batch in tqdm(dataloader, desc="Training", unit="batch", leave=False):
+        x, y, patient_ids = batch
         total_loss += train_step(
             model, batch, peer_cache, embedding_cache,
             train_stay_ids, optimizer, loss_fn
         )
+        # Accumulate logits and labels for end-of-epoch metrics
+        with torch.no_grad():
+            pos_proto_raw, neg_proto_raw = compute_prototypes(
+                patient_ids.tolist(), peer_cache, embedding_cache, train_stay_ids
+            )
+            pos_proto = model.encode(pos_proto_raw)
+            neg_proto = model.encode(neg_proto_raw)
+            logits, _, _ = model(x, pos_proto, neg_proto)
+        all_logits.append(logits.numpy())
+        all_labels.append(y.numpy())
 
-    return total_loss / len(dataloader)
+    logits_np = np.concatenate(all_logits)
+    labels_np = np.concatenate(all_labels)
+    probs     = 1 / (1 + np.exp(-logits_np))
+    preds     = (probs >= 0.5).astype(int)
+
+    metrics = {
+        "loss"     : total_loss / len(dataloader),
+        "accuracy" : accuracy_score(labels_np, preds),
+        "precision": precision_score(labels_np, preds, zero_division=0),
+        "recall"   : recall_score(labels_np, preds, zero_division=0),
+        "f1"       : f1_score(labels_np, preds, zero_division=0),
+        "auroc"    : roc_auc_score(labels_np, probs),
+        "auprc"    : average_precision_score(labels_np, probs),
+    }
+    return metrics
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -274,10 +305,14 @@ if __name__ == "__main__":
     print(f"Training  |  epochs={EPOCHS}  batch={BATCH_SIZE}  lr={LR}\n")
 
     # ── Training loop ─────────────────────────────────────────────────────────
+    print(f"{'Epoch':<7} {'Loss':<8} {'F1':<8} {'Prec':<8} {'Rec':<8} {'AUROC':<8} {'AUPRC':<8}")
+    print("─" * 57)
     for epoch in range(1, EPOCHS + 1):
-        loss = train_epoch(model, dataloader, peer_cache, embedding_cache,
-                           all_train_stay_ids, optimizer, loss_fn)
-        print(f"Epoch {epoch:>3}/{EPOCHS}  |  loss = {loss:.4f}")
+        m = train_epoch(model, dataloader, peer_cache, embedding_cache,
+                        all_train_stay_ids, optimizer, loss_fn)
+        print(f"{epoch:>3}/{EPOCHS}  "
+              f"{m['loss']:<8.4f} {m['f1']:<8.4f} {m['precision']:<8.4f} "
+              f"{m['recall']:<8.4f} {m['auroc']:<8.4f} {m['auprc']:<8.4f}")
 
     # ── Save checkpoint ───────────────────────────────────────────────────────
     ckpt_dir = Path(__file__).parent / "checkpoints"

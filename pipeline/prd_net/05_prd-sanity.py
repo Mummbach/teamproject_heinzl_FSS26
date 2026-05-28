@@ -24,6 +24,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score,
+    f1_score, roc_auc_score, average_precision_score,
+)
 
 sys.path.append(str(Path(__file__).parent.parent))
 from config import OUTPUT_DIR
@@ -154,7 +158,19 @@ if n_pass < 5:
 else:
     print("  OK — prototypes are separating as expected.")
 
-# ── Quick summary ─────────────────────────────────────────────────────────────
-preds   = (logits_np > 0).astype(int)
-correct = (preds == test_labels).mean()
-print(f"\nSimple accuracy (threshold=0) : {correct*100:.1f}%")
+# ── Full evaluation metrics (same set as 07_model_gru.py) ────────────────────
+probs = 1 / (1 + np.exp(-logits_np))   # sigmoid
+preds = (probs >= 0.5).astype(int)
+
+metrics = {
+    "accuracy"  : accuracy_score(test_labels, preds),
+    "precision" : precision_score(test_labels, preds, zero_division=0),
+    "recall"    : recall_score(test_labels, preds, zero_division=0),
+    "f1"        : f1_score(test_labels, preds, zero_division=0),
+    "auroc"     : roc_auc_score(test_labels, probs),
+    "auprc"     : average_precision_score(test_labels, probs),
+}
+
+print("\nTest metrics (global prototypes):")
+for name, val in metrics.items():
+    print(f"  {name:<12}: {val:.4f}")

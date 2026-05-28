@@ -19,11 +19,29 @@ class PRDNet(nn.Module):
 
     Args:
         input_dim  : dimensionality of the input patient embedding (128)
-        hidden_dim : size of the internal projection layer
+        hidden_dim : size of the internal projection layer (64, matches baseline)
     """
 
     def __init__(self, input_dim: int, hidden_dim: int):
         super().__init__()
+
+        # Encoder: single-layer GRU, same architecture as 07_model_gru.py
+        # (baseline uses 2 layers; here 1 layer keeps the prototype branch lighter)
+        self.encoder = nn.GRU(
+            input_size=input_dim,
+            hidden_size=hidden_dim,
+            num_layers=1,
+            batch_first=True,
+        )
+
+        # Head: takes the concatenation of two hidden_dim vectors (patient vs prototype)
+        # and outputs a single logit — positive = closer to positive peers
+        self.head = nn.Sequential(
+            nn.Linear(2 * hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(hidden_dim, 1),
+        )
 
     def encode(self, x):
         """Project a patient embedding into the learned representation space."""

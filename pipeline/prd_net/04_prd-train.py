@@ -36,7 +36,7 @@ from tqdm import tqdm
 
 sys.path.append(str(Path(__file__).parent.parent))
 from config import OUTPUT_DIR
-from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE, HIDDEN_DIM, LR, EPOCHS
+from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE, HIDDEN_DIM, LR, EPOCHS, PATIENCE
 import importlib.util as _ilu
 _spec = _ilu.spec_from_file_location("prd_model", Path(__file__).parent / "03_prd-model.py")
 _mod  = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_mod)
@@ -337,7 +337,8 @@ if __name__ == "__main__":
     print(f"Training  |  epochs={EPOCHS}  batch={BATCH_SIZE}  lr={LR}\n")
 
     # ── Training loop ─────────────────────────────────────────────────────────
-    best_val_loss = float("inf")
+    best_val_loss  = float("inf")
+    epochs_no_improve = 0
     ckpt_dir  = Path(__file__).parent / "checkpoints"
     ckpt_dir.mkdir(exist_ok=True)
     ckpt_path = ckpt_dir / "prd_net_v1.pt"
@@ -352,10 +353,17 @@ if __name__ == "__main__":
         is_best = val_loss < best_val_loss
         if is_best:
             best_val_loss = val_loss
+            epochs_no_improve = 0
             torch.save(model.state_dict(), ckpt_path)
+        else:
+            epochs_no_improve += 1
 
-        marker = " ✓" if is_best else ""
+        marker = " ✓" if is_best else f" (no improve {epochs_no_improve}/{PATIENCE})"
         print(f"{epoch:>3}/{EPOCHS}  {train_loss:<12.4f} {val_loss:<12.4f}{marker}")
+
+        if epochs_no_improve >= PATIENCE:
+            print(f"\nEarly stopping — val loss did not improve for {PATIENCE} epochs.")
+            break
 
     print(f"\nBest val loss : {best_val_loss:.4f}")
     print(f"Saved         : {ckpt_path}")

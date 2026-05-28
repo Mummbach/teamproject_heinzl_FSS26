@@ -91,9 +91,11 @@ neg_proto_raw = torch.tensor(neg_global, dtype=torch.float32).unsqueeze(0).expan
 with torch.no_grad():
     pos_proto      = model.encode(pos_proto_raw)       # (N_test, hidden_dim)
     neg_proto      = model.encode(neg_proto_raw)       # (N_test, hidden_dim)
-    logits, _, _   = model(test_emb, pos_proto, neg_proto)  # (N_test,)
+    logits, delta_pos_t, delta_neg_t = model(test_emb, pos_proto, neg_proto)
 
-logits_np = logits.numpy()
+logits_np    = logits.numpy()
+delta_pos_np = delta_pos_t.numpy()  # (N_test, hidden_dim)
+delta_neg_np = delta_neg_t.numpy()  # (N_test, hidden_dim)
 print(f"  Predictions computed for {len(logits_np):,} test patients")
 
 # ── Top-3 most confident long-stay (highest logit) ────────────────────────────
@@ -113,6 +115,44 @@ print(f"  {'-'*38}")
 for i in top3_short:
     label_str = "long  (1)" if test_labels[i] == 1 else "short (0)"
     print(f"  {int(test_ids[i]):<12}  {logits_np[i]:>8.4f}  {label_str:>12}")
+
+# ── Step 25: delta norms + PASS/FAIL for all 6 confident patients ─────────────
+# For long-stay: patient should be closer to positive peers → ‖delta_pos‖ < ‖delta_neg‖
+# For short-stay: patient should be closer to negative peers → ‖delta_neg‖ < ‖delta_pos‖
+print("\nStep 25 — Prototype distance check:")
+print(f"  {'stay_id':<12}  {'prob':>6}  {'‖Δpos‖':>8}  {'‖Δneg‖':>8}  {'expected':>14}  result")
+print(f"  {'-'*70}")
+
+n_pass = 0
+for label, indices in [("long", top3_long), ("short", top3_short)]:
+    for i in indices:
+        prob      = torch.sigmoid(torch.tensor(logits_np[i])).item()
+        norm_pos  = float(np.linalg.norm(delta_pos_np[i]))
+        norm_neg  = float(np.linalg.norm(delta_neg_np[i]))
+        true_str  = "long  (1)" if test_labels[i] == 1 else "short (0)"
+
+        if label == "long":
+            # Long-stay: closer to positive peers → smaller delta_pos
+            passed   = norm_pos < norm_neg
+            expected = "‖Δpos‖ < ‖Δneg‖"
+        else:
+            # Short-stay: closer to negative peers → smaller delta_neg
+            passed   = norm_neg < norm_pos
+            expected = "‖Δneg‖ < ‖Δpos‖"
+
+        result = "PASS ✓" if passed else "FAIL ✗"
+        if passed:
+            n_pass += 1
+
+        print(f"  {int(test_ids[i]):<12}  {prob:>6.3f}  {norm_pos:>8.4f}  {norm_neg:>8.4f}  "
+              f"{expected:>14}  [{true_str}]  {result}")
+
+print(f"\n  {n_pass}/6 passed")
+if n_pass < 5:
+    print("  WARNING: fewer than 5/6 passed — training signal is not separating "
+          "prototypes well. Consider retraining or loosening peer filters.")
+else:
+    print("  OK — prototypes are separating as expected.")
 
 # ── Quick summary ─────────────────────────────────────────────────────────────
 preds   = (logits_np > 0).astype(int)

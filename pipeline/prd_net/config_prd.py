@@ -13,7 +13,7 @@ HIDDEN_DIM = 64
 BATCH_SIZE = 64
 LR         = 1e-3
 EPOCHS     = 30
-PATIENCE   = 5   # early stopping: stop if val loss doesn't improve for this many epochs
+PATIENCE   = 10   # early stopping: stop if val loss doesn't improve for this many epochs
 
 # ── Cache paths ───────────────────────────────────────────────────────────────
 EMBEDDING_CACHE_PATH = OUTPUT_DIR / "prd_net_embeddings.pkl"

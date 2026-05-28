@@ -37,7 +37,7 @@ from sklearn.metrics import f1_score
 
 sys.path.append(str(Path(__file__).parent.parent))
 from config import OUTPUT_DIR
-from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE, HIDDEN_DIM, LR, EPOCHS, PATIENCE
+from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE, HIDDEN_DIM, LR, EPOCHS, PATIENCE, K_PEERS
 import importlib.util as _ilu
 _spec = _ilu.spec_from_file_location("prd_model", Path(__file__).parent / "03_prd-model.py")
 _mod  = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_mod)
@@ -234,21 +234,21 @@ def train_epoch(model, dataloader, peer_cache, embedding_cache,
 # STEP 6 — Validation epoch
 # ══════════════════════════════════════════════════════════════════════════════
 
-def val_epoch(model, dataloader, pos_global_raw: torch.Tensor,
-              neg_global_raw: torch.Tensor, loss_fn) -> float:
+def val_epoch(model, dataloader, pos_train_emb: torch.Tensor,
+              neg_train_emb: torch.Tensor, loss_fn) -> tuple[float, float]:
     """
-    Evaluate the model on the validation set using global prototypes.
+    Evaluate the model on the validation set using nearest-neighbour prototypes.
 
-    Val patients have no peer cache entries, so we use the mean embedding of
-    all positive / negative training patients as a shared prototype — the same
-    strategy as 05_prd-sanity.py. Prototypes are re-encoded each call so they
-    reflect the current model weights.
+    For each val patient, the closest positive and negative training patient
+    (by L2 distance in raw embedding space) is used as their personal prototype.
+    This matches the strategy in 06_prd-inference.py and avoids the mismatch
+    where training uses peer-specific prototypes but validation used a global mean.
 
     Args:
         model          : PRDNet instance
         dataloader     : val DataLoader (yields x, y, stay_id)
-        pos_global_raw : (1, input_dim) mean embedding of positive training patients
-        neg_global_raw : (1, input_dim) mean embedding of negative training patients
+        pos_train_emb  : (N_pos, input_dim) embeddings of all positive training patients
+        neg_train_emb  : (N_neg, input_dim) embeddings of all negative training patients
         loss_fn        : BCEWithLogitsLoss instance
 
     Returns:
@@ -259,16 +259,23 @@ def val_epoch(model, dataloader, pos_global_raw: torch.Tensor,
     all_logits = []
     all_labels = []
 
-    with torch.no_grad():
-        # Re-encode with current weights so the prototype lives in the same
-        # space as the encoded patient h inside forward()
-        pos_proto_enc = model.encode(pos_global_raw)  # (1, hidden_dim)
-        neg_proto_enc = model.encode(neg_global_raw)  # (1, hidden_dim)
+    # K must not exceed the pool size (edge case for very small splits)
+    k_pos = min(K_PEERS, pos_train_emb.shape[0])
+    k_neg = min(K_PEERS, neg_train_emb.shape[0])
 
+    with torch.no_grad():
         for x, y, _ in tqdm(dataloader, desc="Validation", unit="batch", leave=False):
-            batch_size = x.shape[0]
-            pos_proto  = pos_proto_enc.expand(batch_size, -1)
-            neg_proto  = neg_proto_enc.expand(batch_size, -1)
+            # For each val patient, take the mean of K nearest pos/neg training
+            # patients — same averaging as training peer prototypes
+            pos_top_k = torch.cdist(x, pos_train_emb).topk(k_pos, dim=1, largest=False).indices
+            neg_top_k = torch.cdist(x, neg_train_emb).topk(k_neg, dim=1, largest=False).indices
+
+            pos_proto_raw = pos_train_emb[pos_top_k].mean(dim=1)  # (batch, 128)
+            neg_proto_raw = neg_train_emb[neg_top_k].mean(dim=1)  # (batch, 128)
+
+            pos_proto = model.encode(pos_proto_raw)  # (batch, hidden_dim)
+            neg_proto = model.encode(neg_proto_raw)  # (batch, hidden_dim)
+
             logit, _, _ = model(x, pos_proto, neg_proto)
             total_loss += loss_fn(logit, y).item()
             all_logits.append(logit.numpy())
@@ -327,15 +334,17 @@ if __name__ == "__main__":
     train_loader = make_dataloader(train_stay_ids, embedding_cache, labels,     shuffle=True)
     val_loader   = make_dataloader(val_stay_ids,   embedding_cache, val_labels, shuffle=False)
 
-    # ── Global prototypes for validation (raw 128-dim, re-encoded each epoch) ─
-    pos_global_raw = torch.tensor(
-        np.mean([embedding_cache[int(sid)] for sid in all_train_stay_ids[labels_all == 1]], axis=0),
+    # ── Training embedding matrices for nearest-neighbour val prototypes ─────────
+    pos_train_emb = torch.tensor(
+        np.stack([embedding_cache[int(sid)] for sid in all_train_stay_ids[labels_all == 1]]),
         dtype=torch.float32,
-    ).unsqueeze(0)  # (1, 128)
-    neg_global_raw = torch.tensor(
-        np.mean([embedding_cache[int(sid)] for sid in all_train_stay_ids[labels_all == 0]], axis=0),
+    )  # (N_pos, 128)
+    neg_train_emb = torch.tensor(
+        np.stack([embedding_cache[int(sid)] for sid in all_train_stay_ids[labels_all == 0]]),
         dtype=torch.float32,
-    ).unsqueeze(0)  # (1, 128)
+    )  # (N_neg, 128)
+    print(f"  Positive training embeddings : {pos_train_emb.shape[0]:,}")
+    print(f"  Negative training embeddings : {neg_train_emb.shape[0]:,}")
 
     # ── Model, optimizer, loss ────────────────────────────────────────────────
     INPUT_DIM = next(iter(embedding_cache.values())).shape[0]  # 128
@@ -359,7 +368,7 @@ if __name__ == "__main__":
     for epoch in range(1, EPOCHS + 1):
         train_loss       = train_epoch(model, train_loader, peer_cache, embedding_cache,
                                        all_train_stay_ids, optimizer, loss_fn)
-        val_loss, val_f1 = val_epoch(model, val_loader, pos_global_raw, neg_global_raw, loss_fn)
+        val_loss, val_f1 = val_epoch(model, val_loader, pos_train_emb, neg_train_emb, loss_fn)
 
         is_best = val_f1 > best_val_f1
         if is_best:

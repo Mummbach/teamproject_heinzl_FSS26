@@ -30,6 +30,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
+from tqdm import tqdm
 
 sys.path.append(str(Path(__file__).parent.parent))
 from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE
@@ -139,3 +140,82 @@ def compute_prototypes(
     neg_proto = torch.tensor(np.stack(neg_protos), dtype=torch.float32).detach()
 
     return pos_proto, neg_proto
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 4 — Single training step
+# ══════════════════════════════════════════════════════════════════════════════
+
+def train_step(model, batch, peer_cache, embedding_cache,
+               train_stay_ids, optimizer, loss_fn) -> float:
+    """
+    Run one gradient update on a single batch.
+
+    Prototypes (128-dim raw embeddings) are encoded through model.encode()
+    before the delta is computed — this projects them to hidden_dim (64)
+    so they match the encoded patient h inside forward().
+    Prototype encoding is wrapped in torch.no_grad() since prototypes are
+    fixed supervision and should not accumulate gradients.
+
+    Args:
+        model          : PRDNet instance in train mode
+        batch          : (x, y, patient_ids) from PRDDataset
+        peer_cache     : {stay_id -> (pos_idxs, neg_idxs)}
+        embedding_cache: {stay_id -> np.array}
+        train_stay_ids : maps row index → stay_id for the training set
+        optimizer      : torch optimiser
+        loss_fn        : BCEWithLogitsLoss instance
+
+    Returns:
+        loss value as a plain float
+    """
+    x, y, patient_ids = batch
+
+    # Build prototype tensors (128-dim raw embeddings, detached)
+    pos_proto_raw, neg_proto_raw = compute_prototypes(
+        list(patient_ids), peer_cache, embedding_cache, train_stay_ids
+    )
+
+    # Encode prototypes to hidden_dim so shapes match h inside forward()
+    with torch.no_grad():
+        pos_proto = model.encode(pos_proto_raw)  # (batch, hidden_dim)
+        neg_proto = model.encode(neg_proto_raw)  # (batch, hidden_dim)
+
+    optimizer.zero_grad()
+
+    logit, _, _ = model(x, pos_proto, neg_proto)  # (batch,)
+    loss = loss_fn(logit, y)
+
+    loss.backward()
+    optimizer.step()
+
+    return loss.item()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 5 — Train one epoch
+# ══════════════════════════════════════════════════════════════════════════════
+
+def train_epoch(model, dataloader, peer_cache, embedding_cache,
+                train_stay_ids, optimizer, loss_fn) -> float:
+    """
+    Run train_step for every batch in the dataloader.
+    Shows a tqdm progress bar and returns the mean loss over the epoch.
+
+    Args:
+        model, dataloader, peer_cache, embedding_cache,
+        train_stay_ids, optimizer, loss_fn  — passed straight to train_step
+
+    Returns:
+        mean loss over all batches as a float
+    """
+    model.train()
+    total_loss = 0.0
+
+    for batch in tqdm(dataloader, desc="Training", unit="batch", leave=False):
+        total_loss += train_step(
+            model, batch, peer_cache, embedding_cache,
+            train_stay_ids, optimizer, loss_fn
+        )
+
+    return total_loss / len(dataloader)

@@ -230,6 +230,49 @@ def train_epoch(model, dataloader, peer_cache, embedding_cache,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# STEP 6 — Validation epoch
+# ══════════════════════════════════════════════════════════════════════════════
+
+def val_epoch(model, dataloader, pos_global_raw: torch.Tensor,
+              neg_global_raw: torch.Tensor, loss_fn) -> float:
+    """
+    Evaluate the model on the validation set using global prototypes.
+
+    Val patients have no peer cache entries, so we use the mean embedding of
+    all positive / negative training patients as a shared prototype — the same
+    strategy as 05_prd-sanity.py. Prototypes are re-encoded each call so they
+    reflect the current model weights.
+
+    Args:
+        model          : PRDNet instance
+        dataloader     : val DataLoader (yields x, y, stay_id)
+        pos_global_raw : (1, input_dim) mean embedding of positive training patients
+        neg_global_raw : (1, input_dim) mean embedding of negative training patients
+        loss_fn        : BCEWithLogitsLoss instance
+
+    Returns:
+        mean validation loss (float)
+    """
+    model.eval()
+    total_loss = 0.0
+
+    with torch.no_grad():
+        # Re-encode with current weights so the prototype lives in the same
+        # space as the encoded patient h inside forward()
+        pos_proto_enc = model.encode(pos_global_raw)  # (1, hidden_dim)
+        neg_proto_enc = model.encode(neg_global_raw)  # (1, hidden_dim)
+
+        for x, y, _ in tqdm(dataloader, desc="Validation", unit="batch", leave=False):
+            batch_size = x.shape[0]
+            pos_proto  = pos_proto_enc.expand(batch_size, -1)
+            neg_proto  = neg_proto_enc.expand(batch_size, -1)
+            logit, _, _ = model(x, pos_proto, neg_proto)
+            total_loss += loss_fn(logit, y).item()
+
+    return total_loss / len(dataloader)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -260,8 +303,28 @@ if __name__ == "__main__":
     labels         = labels_all[valid_mask]
     print(f"  Training patients (after peer filter) : {len(train_stay_ids):,}")
 
-    # ── Build dataloader ──────────────────────────────────────────────────────
-    dataloader = make_dataloader(train_stay_ids, embedding_cache, labels, shuffle=True)
+    # ── Load validation data ──────────────────────────────────────────────────
+    print("Loading validation data...")
+    X_val = pd.read_parquet(OUTPUT_DIR / "X_val.parquet")
+    y_val = pd.read_parquet(OUTPUT_DIR / "y_val.parquet")
+
+    val_stay_ids = X_val["stay_id"].values
+    val_labels   = y_val.set_index("stay_id").loc[val_stay_ids, "los_gt7"].values
+    print(f"  Validation patients : {len(val_stay_ids):,}")
+
+    # ── Build dataloaders ─────────────────────────────────────────────────────
+    train_loader = make_dataloader(train_stay_ids, embedding_cache, labels,     shuffle=True)
+    val_loader   = make_dataloader(val_stay_ids,   embedding_cache, val_labels, shuffle=False)
+
+    # ── Global prototypes for validation (raw 128-dim, re-encoded each epoch) ─
+    pos_global_raw = torch.tensor(
+        np.mean([embedding_cache[int(sid)] for sid in all_train_stay_ids[labels_all == 1]], axis=0),
+        dtype=torch.float32,
+    ).unsqueeze(0)  # (1, 128)
+    neg_global_raw = torch.tensor(
+        np.mean([embedding_cache[int(sid)] for sid in all_train_stay_ids[labels_all == 0]], axis=0),
+        dtype=torch.float32,
+    ).unsqueeze(0)  # (1, 128)
 
     # ── Model, optimizer, loss ────────────────────────────────────────────────
     INPUT_DIM = next(iter(embedding_cache.values())).shape[0]  # 128
@@ -274,16 +337,25 @@ if __name__ == "__main__":
     print(f"Training  |  epochs={EPOCHS}  batch={BATCH_SIZE}  lr={LR}\n")
 
     # ── Training loop ─────────────────────────────────────────────────────────
-    print(f"{'Epoch':<7} {'Loss':<8}")
-    print("─" * 16)
-    for epoch in range(1, EPOCHS + 1):
-        loss = train_epoch(model, dataloader, peer_cache, embedding_cache,
-                           all_train_stay_ids, optimizer, loss_fn)
-        print(f"{epoch:>3}/{EPOCHS}  {loss:<8.4f}")
-
-    # ── Save checkpoint ───────────────────────────────────────────────────────
-    ckpt_dir = Path(__file__).parent / "checkpoints"
+    best_val_loss = float("inf")
+    ckpt_dir  = Path(__file__).parent / "checkpoints"
     ckpt_dir.mkdir(exist_ok=True)
     ckpt_path = ckpt_dir / "prd_net_v1.pt"
-    torch.save(model.state_dict(), ckpt_path)
-    print(f"\nSaved: {ckpt_path}")
+
+    print(f"{'Epoch':<7} {'Train Loss':<12} {'Val Loss':<12} {'Best'}")
+    print("─" * 40)
+    for epoch in range(1, EPOCHS + 1):
+        train_loss = train_epoch(model, train_loader, peer_cache, embedding_cache,
+                                 all_train_stay_ids, optimizer, loss_fn)
+        val_loss   = val_epoch(model, val_loader, pos_global_raw, neg_global_raw, loss_fn)
+
+        is_best = val_loss < best_val_loss
+        if is_best:
+            best_val_loss = val_loss
+            torch.save(model.state_dict(), ckpt_path)
+
+        marker = " ✓" if is_best else ""
+        print(f"{epoch:>3}/{EPOCHS}  {train_loss:<12.4f} {val_loss:<12.4f}{marker}")
+
+    print(f"\nBest val loss : {best_val_loss:.4f}")
+    print(f"Saved         : {ckpt_path}")

@@ -28,12 +28,19 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
+import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 sys.path.append(str(Path(__file__).parent.parent))
-from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE
+from config import OUTPUT_DIR
+from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE, HIDDEN_DIM, LR, EPOCHS
+import importlib.util as _ilu
+_spec = _ilu.spec_from_file_location("prd_model", Path(__file__).parent / "03_prd-model.py")
+_mod  = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_mod)
+PRDNet = _mod.PRDNet
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -172,8 +179,9 @@ def train_step(model, batch, peer_cache, embedding_cache,
     x, y, patient_ids = batch
 
     # Build prototype tensors (128-dim raw embeddings, detached)
+    # DataLoader returns patient_ids as a tensor — convert to plain Python ints
     pos_proto_raw, neg_proto_raw = compute_prototypes(
-        list(patient_ids), peer_cache, embedding_cache, train_stay_ids
+        patient_ids.tolist(), peer_cache, embedding_cache, train_stay_ids
     )
 
     # Encode prototypes to hidden_dim so shapes match h inside forward()
@@ -219,3 +227,61 @@ def train_epoch(model, dataloader, peer_cache, embedding_cache,
         )
 
     return total_loss / len(dataloader)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN
+# ══════════════════════════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+
+    # ── Load caches ───────────────────────────────────────────────────────────
+    print("Loading caches...")
+    embedding_cache, peer_cache = load_caches()
+    print(f"  Embeddings : {len(embedding_cache):,} patients")
+    print(f"  Peer cache : {len(peer_cache):,} patients")
+
+    # ── Load training labels and stay_id order ────────────────────────────────
+    print("Loading training data...")
+    X_train = pd.read_parquet(OUTPUT_DIR / "X_train.parquet")
+    y_train = pd.read_parquet(OUTPUT_DIR / "y_train.parquet")
+
+    # all_train_stay_ids: full row-index → stay_id lookup used by compute_prototypes
+    # Must stay unfiltered — peer row indices reference positions in this array
+    all_train_stay_ids = X_train["stay_id"].values
+    labels_all = y_train.set_index("stay_id").loc[all_train_stay_ids, "los_gt7"].values
+
+    # Filter out the 6 patients with 0 peers on either side — they crash compute_prototypes
+    valid_mask = np.array([
+        sid in peer_cache and len(peer_cache[sid][0]) > 0 and len(peer_cache[sid][1]) > 0
+        for sid in all_train_stay_ids
+    ])
+    train_stay_ids = all_train_stay_ids[valid_mask]
+    labels         = labels_all[valid_mask]
+    print(f"  Training patients (after peer filter) : {len(train_stay_ids):,}")
+
+    # ── Build dataloader ──────────────────────────────────────────────────────
+    dataloader = make_dataloader(train_stay_ids, embedding_cache, labels, shuffle=True)
+
+    # ── Model, optimizer, loss ────────────────────────────────────────────────
+    INPUT_DIM = next(iter(embedding_cache.values())).shape[0]  # 128
+    model     = PRDNet(input_dim=INPUT_DIM, hidden_dim=HIDDEN_DIM)
+    optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+    loss_fn   = nn.BCEWithLogitsLoss()
+
+    print(f"\nPRDNet  |  input={INPUT_DIM}  hidden={HIDDEN_DIM}  "
+          f"params={sum(p.numel() for p in model.parameters()):,}")
+    print(f"Training  |  epochs={EPOCHS}  batch={BATCH_SIZE}  lr={LR}\n")
+
+    # ── Training loop ─────────────────────────────────────────────────────────
+    for epoch in range(1, EPOCHS + 1):
+        loss = train_epoch(model, dataloader, peer_cache, embedding_cache,
+                           all_train_stay_ids, optimizer, loss_fn)
+        print(f"Epoch {epoch:>3}/{EPOCHS}  |  loss = {loss:.4f}")
+
+    # ── Save checkpoint ───────────────────────────────────────────────────────
+    ckpt_dir = Path(__file__).parent / "checkpoints"
+    ckpt_dir.mkdir(exist_ok=True)
+    ckpt_path = ckpt_dir / "prd_net_v1.pt"
+    torch.save(model.state_dict(), ckpt_path)
+    print(f"\nSaved: {ckpt_path}")

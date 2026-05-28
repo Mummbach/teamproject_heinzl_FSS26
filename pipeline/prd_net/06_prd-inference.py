@@ -1,29 +1,28 @@
 """
-PRD-Net — Step 6: Nearest-Neighbour Inference
-===============================================
-Runs the trained PRD-Net on the test set using nearest real patients from
-the training set as prototypes — one actual long-stay patient and one actual
-short-stay patient per test case.
+PRD-Net — Step 6: K-Nearest-Neighbour Inference
+=================================================
+Runs the trained PRD-Net on the test set using the mean of the K=20 nearest
+training patients per class as prototypes — consistent with how prototypes are
+built during training and validation.
 
-Why real patients instead of the global mean (05_prd-sanity.py)?
-  The global mean is a synthetic average that may not correspond to any real
-  patient. Using the single nearest real positive/negative training patient
-  makes each prototype clinically interpretable: "this test patient is most
-  similar to training patient X (long-stay) and training patient Y (short-stay)".
+Why K=20 mean instead of K=1 single patient?
+  Training uses the mean of K=20 peer embeddings as the prototype signal.
+  Using K=1 at test time gives the model a structurally different input
+  (single spiky embedding vs smooth average), which degrades performance.
+  K=20 mean keeps the prototype distribution the same as at training time.
 
 Prototype strategy:
   For each test patient:
-    1. Compute L2 distance to ALL positive training patients in embedding space.
-       → pos_proto = embedding of the closest one (K=1)
+    1. Find the K=20 nearest positive training patients by L2 distance.
+       → pos_proto = mean of their embeddings
     2. Same for negative training patients.
-       → neg_proto = embedding of the closest one (K=1)
-  These real patient embeddings are then encoded via model.encode() (same as
-  in training) before the delta is computed.
+       → neg_proto = mean of their embeddings
+  Prototypes are encoded via model.encode() before the delta is computed.
 
 Output:
   - Full test metrics (accuracy, precision, recall, F1, AUROC, AUPRC)
   - Comparison table vs 05_prd-sanity.py global-mean approach
-  - Top-3 most confident long/short stay predictions with matched prototype IDs
+  - Top-3 most confident long/short stay predictions with closest matched prototype ID
 """
 
 import importlib.util
@@ -41,7 +40,7 @@ from sklearn.metrics import (
 
 sys.path.append(str(Path(__file__).parent.parent))
 from config import OUTPUT_DIR
-from prd_net.config_prd import EMBEDDING_CACHE_PATH, HIDDEN_DIM
+from prd_net.config_prd import EMBEDDING_CACHE_PATH, HIDDEN_DIM, K_PEERS
 
 # Load PRDNet via importlib (filename starts with digit and contains hyphen)
 _spec = importlib.util.spec_from_file_location(
@@ -99,52 +98,32 @@ test_emb_np = np.stack([emb_dict[int(sid)] for sid in test_ids])  # (N_test, 128
 print(f"  Test patients : {N_test:,}")
 
 
-# ── Find nearest real prototype per test patient ──────────────────────────────
-print("Finding nearest positive and negative training patient per test patient...")
+# ── Build K=20 mean prototypes per test patient ───────────────────────────────
+print(f"Building K={K_PEERS} mean prototypes per test patient...")
 
-def nearest_embedding(query_emb: np.ndarray, pool_emb: np.ndarray) -> tuple[int, np.ndarray]:
-    """
-    Find the single nearest neighbour in pool_emb for a query vector.
+test_emb_t    = torch.tensor(test_emb_np,    dtype=torch.float32)
+pos_train_t   = torch.tensor(pos_train_emb,  dtype=torch.float32)
+neg_train_t   = torch.tensor(neg_train_emb,  dtype=torch.float32)
 
-    Args:
-        query_emb : (embedding_dim,) — the test patient's embedding
-        pool_emb  : (N_pool, embedding_dim) — candidate training embeddings
+k_pos = min(K_PEERS, pos_train_t.shape[0])
+k_neg = min(K_PEERS, neg_train_t.shape[0])
 
-    Returns:
-        idx        : row index of the nearest neighbour in pool_emb
-        nearest    : (embedding_dim,) embedding of that nearest neighbour
-    """
-    dists = np.linalg.norm(pool_emb - query_emb, axis=1)
-    idx   = int(np.argmin(dists))
-    return idx, pool_emb[idx]
+with torch.no_grad():
+    pos_top_k = torch.cdist(test_emb_t, pos_train_t).topk(k_pos, dim=1, largest=False).indices
+    neg_top_k = torch.cdist(test_emb_t, neg_train_t).topk(k_neg, dim=1, largest=False).indices
 
+pos_proto_raw = pos_train_t[pos_top_k].mean(dim=1)  # (N_test, 128)
+neg_proto_raw = neg_train_t[neg_top_k].mean(dim=1)  # (N_test, 128)
 
-# Build (N_test, 128) arrays of the nearest positive / negative prototypes
-pos_proto_emb = np.zeros((N_test, INPUT_DIM), dtype=np.float32)
-neg_proto_emb = np.zeros((N_test, INPUT_DIM), dtype=np.float32)
-nearest_pos_ids = []  # stay_id of the matched positive training patient
-nearest_neg_ids = []  # stay_id of the matched negative training patient
-
-for i, sid in enumerate(test_ids):
-    query = test_emb_np[i]
-
-    pos_idx, pos_emb = nearest_embedding(query, pos_train_emb)
-    neg_idx, neg_emb = nearest_embedding(query, neg_train_emb)
-
-    pos_proto_emb[i] = pos_emb
-    neg_proto_emb[i] = neg_emb
-    nearest_pos_ids.append(int(pos_train_ids[pos_idx]))
-    nearest_neg_ids.append(int(neg_train_ids[neg_idx]))
+# Keep the single nearest ID per patient for the top-3 display
+nearest_pos_ids = [int(pos_train_ids[pos_top_k[i, 0]]) for i in range(N_test)]
+nearest_neg_ids = [int(neg_train_ids[neg_top_k[i, 0]]) for i in range(N_test)]
 
 print("  Done.")
 
 
 # ── Run PRDNet ────────────────────────────────────────────────────────────────
-print("Running PRDNet with nearest-neighbour prototypes...")
-test_emb_t    = torch.tensor(test_emb_np,    dtype=torch.float32)
-pos_proto_raw = torch.tensor(pos_proto_emb,  dtype=torch.float32)
-neg_proto_raw = torch.tensor(neg_proto_emb,  dtype=torch.float32)
-
+print("Running PRDNet with K=20 mean prototypes...")
 with torch.no_grad():
     pos_proto            = model.encode(pos_proto_raw)   # (N_test, hidden_dim)
     neg_proto            = model.encode(neg_proto_raw)   # (N_test, hidden_dim)

@@ -36,8 +36,13 @@ from tqdm import tqdm
 from sklearn.metrics import f1_score
 
 sys.path.append(str(Path(__file__).parent.parent))
-from config import OUTPUT_DIR
-from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE, HIDDEN_DIM, LR, EPOCHS, PATIENCE, K_PEERS
+from config import OUTPUT_DIR, ICD_CATEGORIES
+from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE, HIDDEN_DIM, LR, EPOCHS, PATIENCE, K_PEERS, AGE_TOLERANCE
+
+# Clinical filter column names — must match 02_peer-groups.py exactly
+ICU_COLS = ["icu_micu", "icu_sicu", "icu_ccu", "icu_cvicu",
+            "icu_micu_sicu", "icu_tsicu", "icu_neuro_sicu"]
+ICD_COLS = [f"icd_{cat}" for cat in ICD_CATEGORIES]
 import importlib.util as _ilu
 _spec = _ilu.spec_from_file_location("prd_model", Path(__file__).parent / "03_prd-model.py")
 _mod  = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_mod)
@@ -231,63 +236,145 @@ def train_epoch(model, dataloader, peer_cache, embedding_cache,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 6 — Validation epoch
+# STEP 6 — Clinically filtered prototypes for val / test
 # ══════════════════════════════════════════════════════════════════════════════
 
-def val_epoch(model, dataloader, pos_train_emb: torch.Tensor,
-              neg_train_emb: torch.Tensor, loss_fn) -> tuple[float, float]:
+def build_filtered_prototypes(
+    query_df: pd.DataFrame,
+    query_stay_ids: np.ndarray,
+    train_df: pd.DataFrame,
+    all_train_stay_ids: np.ndarray,
+    all_train_labels: np.ndarray,
+    embedding_cache: dict,
+    k: int,
+    age_tol: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
-    Evaluate the model on the validation set using nearest-neighbour prototypes.
+    For each query patient (val or test), apply the same ICD+ICU+age filter
+    used during training peer-group construction (02_peer-groups.py), then
+    select the K nearest training patients per class and return their mean
+    embedding as the prototype.
 
-    For each val patient, the closest positive and negative training patient
-    (by L2 distance in raw embedding space) is used as their personal prototype.
-    This matches the strategy in 06_prd-inference.py and avoids the mismatch
-    where training uses peer-specific prototypes but validation used a global mean.
+    Previously, val/test used raw K-nearest without any clinical filter, while
+    training used clinically filtered peers. This mismatch meant the model saw
+    a structurally different prototype at eval time than it was trained on.
+    Applying the same filter end-to-end removes that inconsistency.
+
+    Falls back to unfiltered K-nearest if the filtered pool for a class is empty
+    (rare patients with no ICD/ICU match in the training set).
 
     Args:
-        model          : PRDNet instance
-        dataloader     : val DataLoader (yields x, y, stay_id)
-        pos_train_emb  : (N_pos, input_dim) embeddings of all positive training patients
-        neg_train_emb  : (N_neg, input_dim) embeddings of all negative training patients
-        loss_fn        : BCEWithLogitsLoss instance
+        query_df          : DataFrame for query patients (X_val or X_test, unscaled)
+        query_stay_ids    : ordered stay_id array for query patients
+        train_df          : X_train (unscaled) — contains ICD, ICU, age columns
+        all_train_stay_ids: stay_id array aligned with train_df rows
+        all_train_labels  : binary label array aligned with train_df rows
+        embedding_cache   : {stay_id -> np.array (128,)}
+        k                 : number of peers per class (K_PEERS)
+        age_tol           : maximum age difference in years (AGE_TOLERANCE)
 
     Returns:
-        (mean val loss, val F1) — tuple of floats
+        pos_proto_raw : (N_query, 128) mean embedding of K nearest positive peers
+        neg_proto_raw : (N_query, 128) mean embedding of K nearest negative peers
+    """
+    all_train_emb = np.stack([embedding_cache[int(sid)] for sid in all_train_stay_ids])
+
+    train_icd = train_df[ICD_COLS].values   # (N_train, n_icd)
+    train_icu = train_df[ICU_COLS].values   # (N_train, n_icu)
+    train_age = train_df["age"].values       # (N_train,)
+
+    pos_global_idx = np.where(all_train_labels == 1)[0]
+    neg_global_idx = np.where(all_train_labels == 0)[0]
+
+    # Build stay_id → row-index lookup for the query DataFrame
+    sid_to_row = {int(sid): i for i, sid in enumerate(query_df["stay_id"].values)}
+    query_icd  = query_df[ICD_COLS].values
+    query_icu  = query_df[ICU_COLS].values
+    query_age  = query_df["age"].values
+
+    N          = len(query_stay_ids)
+    emb_dim    = all_train_emb.shape[1]
+    pos_protos = np.zeros((N, emb_dim), dtype=np.float32)
+    neg_protos = np.zeros((N, emb_dim), dtype=np.float32)
+
+    def _knn_mean(candidates: np.ndarray, target_emb: np.ndarray) -> np.ndarray:
+        dists   = np.linalg.norm(all_train_emb[candidates] - target_emb, axis=1)
+        k_use   = min(k, len(candidates))
+        top_idx = np.argsort(dists)[:k_use]
+        return all_train_emb[candidates[top_idx]].mean(axis=0)
+
+    for i, sid in enumerate(tqdm(query_stay_ids, desc="Filtered prototypes", leave=False)):
+        q_row  = sid_to_row[int(sid)]
+        target = embedding_cache[int(sid)]
+
+        # Hard filter: same primary ICD chapter + ICU type (binary match)
+        q_icd = int(np.argmax(query_icd[q_row])) if query_icd[q_row].max() == 1 else None
+        q_icu = int(np.argmax(query_icu[q_row])) if query_icu[q_row].max() == 1 else None
+
+        mask = np.ones(len(train_df), dtype=bool)
+        if q_icd is not None:
+            mask &= train_icd[:, q_icd] == 1
+        if q_icu is not None:
+            mask &= train_icu[:, q_icu] == 1
+
+        # Age filter: within ±age_tol years
+        mask &= np.abs(train_age - query_age[q_row]) <= age_tol
+
+        candidates = np.where(mask)[0]
+        pos_cands  = candidates[all_train_labels[candidates] == 1]
+        neg_cands  = candidates[all_train_labels[candidates] == 0]
+
+        # Fall back to unfiltered pool if no match survives the filter
+        if len(pos_cands) == 0:
+            pos_cands = pos_global_idx
+        if len(neg_cands) == 0:
+            neg_cands = neg_global_idx
+
+        pos_protos[i] = _knn_mean(pos_cands, target)
+        neg_protos[i] = _knn_mean(neg_cands, target)
+
+    return torch.tensor(pos_protos), torch.tensor(neg_protos)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 7 — Validation epoch
+# ══════════════════════════════════════════════════════════════════════════════
+
+def val_epoch(model, val_emb: torch.Tensor, val_labels: torch.Tensor,
+              val_pos_proto_raw: torch.Tensor, val_neg_proto_raw: torch.Tensor,
+              loss_fn) -> tuple[float, float]:
+    """
+    Evaluate on the full validation set in one pass using pre-computed
+    clinically filtered prototypes (built once before training starts).
+
+    Prototypes are re-encoded with current model weights each call so they
+    reflect the evolving representation space.
+
+    Args:
+        model             : PRDNet instance
+        val_emb           : (N_val, input_dim) val patient embeddings
+        val_labels        : (N_val,) binary labels
+        val_pos_proto_raw : (N_val, input_dim) pre-computed positive prototypes
+        val_neg_proto_raw : (N_val, input_dim) pre-computed negative prototypes
+        loss_fn           : BCEWithLogitsLoss instance
+
+    Returns:
+        (val loss, val F1) — tuple of floats
     """
     model.eval()
-    total_loss = 0.0
-    all_logits = []
-    all_labels = []
-
-    # K must not exceed the pool size (edge case for very small splits)
-    k_pos = min(K_PEERS, pos_train_emb.shape[0])
-    k_neg = min(K_PEERS, neg_train_emb.shape[0])
-
     with torch.no_grad():
-        for x, y, _ in tqdm(dataloader, desc="Validation", unit="batch", leave=False):
-            # For each val patient, take the mean of K nearest pos/neg training
-            # patients — same averaging as training peer prototypes
-            pos_top_k = torch.cdist(x, pos_train_emb).topk(k_pos, dim=1, largest=False).indices
-            neg_top_k = torch.cdist(x, neg_train_emb).topk(k_neg, dim=1, largest=False).indices
+        pos_proto        = model.encode(val_pos_proto_raw)
+        neg_proto        = model.encode(val_neg_proto_raw)
+        logits, _, _     = model(val_emb, pos_proto, neg_proto)
+        loss             = loss_fn(logits, val_labels).item()
 
-            pos_proto_raw = pos_train_emb[pos_top_k].mean(dim=1)  # (batch, 128)
-            neg_proto_raw = neg_train_emb[neg_top_k].mean(dim=1)  # (batch, 128)
-
-            pos_proto = model.encode(pos_proto_raw)  # (batch, hidden_dim)
-            neg_proto = model.encode(neg_proto_raw)  # (batch, hidden_dim)
-
-            logit, _, _ = model(x, pos_proto, neg_proto)
-            total_loss += loss_fn(logit, y).item()
-            all_logits.append(logit.numpy())
-            all_labels.append(y.numpy())
-
-    logits_np = np.concatenate(all_logits)
-    labels_np = np.concatenate(all_labels)
+    logits_np = logits.numpy()
+    labels_np = val_labels.numpy()
     probs     = 1 / (1 + np.exp(-logits_np))
     preds     = (probs >= 0.5).astype(int)
     val_f1    = f1_score(labels_np, preds, zero_division=0)
 
-    return total_loss / len(dataloader), val_f1
+    return loss, val_f1
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -330,21 +417,24 @@ if __name__ == "__main__":
     val_labels   = y_val.set_index("stay_id").loc[val_stay_ids, "los_gt7"].values
     print(f"  Validation patients : {len(val_stay_ids):,}")
 
-    # ── Build dataloaders ─────────────────────────────────────────────────────
-    train_loader = make_dataloader(train_stay_ids, embedding_cache, labels,     shuffle=True)
-    val_loader   = make_dataloader(val_stay_ids,   embedding_cache, val_labels, shuffle=False)
+    # ── Build train dataloader ────────────────────────────────────────────────
+    train_loader = make_dataloader(train_stay_ids, embedding_cache, labels, shuffle=True)
 
-    # ── Training embedding matrices for nearest-neighbour val prototypes ─────────
-    pos_train_emb = torch.tensor(
-        np.stack([embedding_cache[int(sid)] for sid in all_train_stay_ids[labels_all == 1]]),
-        dtype=torch.float32,
-    )  # (N_pos, 128)
-    neg_train_emb = torch.tensor(
-        np.stack([embedding_cache[int(sid)] for sid in all_train_stay_ids[labels_all == 0]]),
-        dtype=torch.float32,
-    )  # (N_neg, 128)
-    print(f"  Positive training embeddings : {pos_train_emb.shape[0]:,}")
-    print(f"  Negative training embeddings : {neg_train_emb.shape[0]:,}")
+    # ── Val embeddings and labels as tensors (no DataLoader needed) ───────────
+    val_emb      = torch.tensor(
+        np.stack([embedding_cache[int(sid)] for sid in val_stay_ids]), dtype=torch.float32
+    )
+    val_labels_t = torch.tensor(val_labels, dtype=torch.float32)
+
+    # ── Clinically filtered val prototypes — computed once, re-encoded each epoch
+    # Applies the same ICD+ICU+age filter as training peer groups (02_peer-groups.py)
+    # so the model sees a consistent prototype structure at val time.
+    print("Building clinically filtered val prototypes...")
+    val_pos_proto_raw, val_neg_proto_raw = build_filtered_prototypes(
+        X_val, val_stay_ids, X_train, all_train_stay_ids, labels_all,
+        embedding_cache, K_PEERS, AGE_TOLERANCE,
+    )
+    print(f"  Done — {len(val_stay_ids):,} val prototypes built")
 
     # ── Model, optimizer, loss ────────────────────────────────────────────────
     INPUT_DIM = next(iter(embedding_cache.values())).shape[0]  # 128
@@ -368,7 +458,8 @@ if __name__ == "__main__":
     for epoch in range(1, EPOCHS + 1):
         train_loss       = train_epoch(model, train_loader, peer_cache, embedding_cache,
                                        all_train_stay_ids, optimizer, loss_fn)
-        val_loss, val_f1 = val_epoch(model, val_loader, pos_train_emb, neg_train_emb, loss_fn)
+        val_loss, val_f1 = val_epoch(model, val_emb, val_labels_t,
+                                         val_pos_proto_raw, val_neg_proto_raw, loss_fn)
 
         is_best = val_f1 > best_val_f1
         if is_best:

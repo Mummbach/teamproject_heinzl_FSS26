@@ -26,13 +26,15 @@ class PRDNet(nn.Module):
     def __init__(self, input_dim: int, hidden_dim: int):
         super().__init__()
 
-        # Encoder: single-layer GRU, same architecture as 07_model_gru.py
-        # (baseline uses 2 layers; here 1 layer keeps the prototype branch lighter)
-        self.encoder = nn.GRU(
-            input_size=input_dim,
-            hidden_size=hidden_dim,
-            num_layers=1,
-            batch_first=True,
+        # Encoder: MLP projection from input_dim → hidden_dim.
+        # A GRU was used initially but is inappropriate here: GRUs process
+        # sequences, and the input is a single flat vector (seq_len=1), so the
+        # GRU reduces to an expensive linear projection with no temporal benefit.
+        # An MLP is the correct choice for projecting a fixed-size embedding.
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1),
         )
 
         # Head: takes the concatenation of two hidden_dim vectors (patient vs prototype)
@@ -54,9 +56,7 @@ class PRDNet(nn.Module):
         Returns:
             (batch, hidden_dim) — encoded representation
         """
-        # GRU expects (batch, seq_len, input_size); unsqueeze adds seq_len=1
-        _, h_n = self.encoder(x.unsqueeze(1))
-        return h_n[-1]  # (batch, hidden_dim)
+        return self.encoder(x)  # (batch, hidden_dim)
 
     def forward(self, x, pos_proto, neg_proto):
         """

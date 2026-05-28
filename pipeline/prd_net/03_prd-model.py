@@ -10,6 +10,7 @@ Architecture (to be implemented):
   forward(x, pos, neg) — scores similarity to positive vs. negative prototype
 """
 
+import torch
 import torch.nn as nn
 
 
@@ -61,12 +62,25 @@ class PRDNet(nn.Module):
         """
         Score the patient against positive and negative peer prototypes.
 
+        Encodes the patient, computes how far it sits from each peer group
+        centroid, then passes the combined delta through the classifier head.
+
         Args:
             x         : (batch, input_dim) — target patient embeddings
-            pos_proto : (batch, input_dim) — mean embedding of positive peers
-            neg_proto : (batch, input_dim) — mean embedding of negative peers
+            pos_proto : (batch, hidden_dim) — mean embedding of positive peers
+            neg_proto : (batch, hidden_dim) — mean embedding of negative peers
 
         Returns:
-            To be defined — similarity scores or logits.
+            logit     : (batch,) — raw score; positive = closer to pos peers
+            delta_pos : (batch, hidden_dim) — distance vector to positive proto
+            delta_neg : (batch, hidden_dim) — distance vector to negative proto
         """
-        pass
+        h = self.encode(x)                        # (batch, hidden_dim)
+
+        delta_pos = h - pos_proto                 # how far from positive peers
+        delta_neg = h - neg_proto                 # how far from negative peers
+
+        combined = torch.cat([delta_pos, delta_neg], dim=-1)  # (batch, 2*hidden_dim)
+        logit = self.head(combined).squeeze(-1)   # (batch,)
+
+        return logit, delta_pos, delta_neg

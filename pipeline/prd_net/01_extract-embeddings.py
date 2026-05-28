@@ -250,11 +250,18 @@ if __name__ == "__main__":
         pd.read_parquet(OUTPUT_DIR / "y_test.parquet"),
     ], ignore_index=True)
 
-    print(f"  Total patients: {len(X_all):,}")
+    print(f"  Total patients : {len(X_all):,}")
+    print(f"  Static features: {X_all.shape[1] - 1}")
+    print(f"  TS features    : {len(TS_FEATURES)}  ({TS_FEATURES})")
+    long_stay = y_all["los_gt7"].sum()
+    print(f"  Long stay (>7d): {long_stay:,}  ({long_stay/len(y_all)*100:.1f}%)")
 
     # Build dataset and dataloader (no shuffling — order must match stay_ids)
+    print("\nBuilding dataset and dataloader...")
     dataset    = ICUDataset(X_all, y_all, ts, TS_FEATURES)
+    print(f"  Dataset size   : {len(dataset):,} samples")
     dataloader = DataLoader(dataset, batch_size=256, shuffle=False)
+    print(f"  Batches        : {len(dataloader):,}  (batch_size=256)")
 
     # ── Step 2: extract embeddings ────────────────────────────────────────────
     print("\nStep 2 — Extracting embeddings...")

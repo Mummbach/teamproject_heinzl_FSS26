@@ -33,6 +33,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
+from sklearn.metrics import f1_score
 
 sys.path.append(str(Path(__file__).parent.parent))
 from config import OUTPUT_DIR
@@ -251,10 +252,12 @@ def val_epoch(model, dataloader, pos_global_raw: torch.Tensor,
         loss_fn        : BCEWithLogitsLoss instance
 
     Returns:
-        mean validation loss (float)
+        (mean val loss, val F1) — tuple of floats
     """
     model.eval()
     total_loss = 0.0
+    all_logits = []
+    all_labels = []
 
     with torch.no_grad():
         # Re-encode with current weights so the prototype lives in the same
@@ -268,8 +271,16 @@ def val_epoch(model, dataloader, pos_global_raw: torch.Tensor,
             neg_proto  = neg_proto_enc.expand(batch_size, -1)
             logit, _, _ = model(x, pos_proto, neg_proto)
             total_loss += loss_fn(logit, y).item()
+            all_logits.append(logit.numpy())
+            all_labels.append(y.numpy())
 
-    return total_loss / len(dataloader)
+    logits_np = np.concatenate(all_logits)
+    labels_np = np.concatenate(all_labels)
+    probs     = 1 / (1 + np.exp(-logits_np))
+    preds     = (probs >= 0.5).astype(int)
+    val_f1    = f1_score(labels_np, preds, zero_division=0)
+
+    return total_loss / len(dataloader), val_f1
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -337,33 +348,33 @@ if __name__ == "__main__":
     print(f"Training  |  epochs={EPOCHS}  batch={BATCH_SIZE}  lr={LR}\n")
 
     # ── Training loop ─────────────────────────────────────────────────────────
-    best_val_loss  = float("inf")
+    best_val_f1    = 0.0
     epochs_no_improve = 0
     ckpt_dir  = Path(__file__).parent / "checkpoints"
     ckpt_dir.mkdir(exist_ok=True)
     ckpt_path = ckpt_dir / "prd_net_v1.pt"
 
-    print(f"{'Epoch':<7} {'Train Loss':<12} {'Val Loss':<12} {'Best'}")
-    print("─" * 40)
+    print(f"{'Epoch':<7} {'Train Loss':<12} {'Val Loss':<12} {'Val F1':<10} {'Best'}")
+    print("─" * 50)
     for epoch in range(1, EPOCHS + 1):
-        train_loss = train_epoch(model, train_loader, peer_cache, embedding_cache,
-                                 all_train_stay_ids, optimizer, loss_fn)
-        val_loss   = val_epoch(model, val_loader, pos_global_raw, neg_global_raw, loss_fn)
+        train_loss       = train_epoch(model, train_loader, peer_cache, embedding_cache,
+                                       all_train_stay_ids, optimizer, loss_fn)
+        val_loss, val_f1 = val_epoch(model, val_loader, pos_global_raw, neg_global_raw, loss_fn)
 
-        is_best = val_loss < best_val_loss
+        is_best = val_f1 > best_val_f1
         if is_best:
-            best_val_loss = val_loss
+            best_val_f1 = val_f1
             epochs_no_improve = 0
             torch.save(model.state_dict(), ckpt_path)
         else:
             epochs_no_improve += 1
 
         marker = " ✓" if is_best else f" (no improve {epochs_no_improve}/{PATIENCE})"
-        print(f"{epoch:>3}/{EPOCHS}  {train_loss:<12.4f} {val_loss:<12.4f}{marker}")
+        print(f"{epoch:>3}/{EPOCHS}  {train_loss:<12.4f} {val_loss:<12.4f} {val_f1:<10.4f}{marker}")
 
         if epochs_no_improve >= PATIENCE:
-            print(f"\nEarly stopping — val loss did not improve for {PATIENCE} epochs.")
+            print(f"\nEarly stopping — val F1 did not improve for {PATIENCE} epochs.")
             break
 
-    print(f"\nBest val loss : {best_val_loss:.4f}")
-    print(f"Saved         : {ckpt_path}")
+    print(f"\nBest val F1 : {best_val_f1:.4f}")
+    print(f"Saved       : {ckpt_path}")

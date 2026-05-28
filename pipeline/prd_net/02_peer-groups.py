@@ -183,7 +183,7 @@ def get_peers(
 # MAIN — build peer groups for all training patients
 # ══════════════════════════════════════════════════════════════════════════════
 
-if __name__ == "__main__":
+if __name__ == "__main__": # only run if directly started from this file
     from config import OUTPUT_DIR
     from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, K_PEERS, AGE_TOLERANCE
 
@@ -224,10 +224,31 @@ if __name__ == "__main__":
         if len(pos) == 0 or len(neg) == 0: n_empty += 1
 
     # ── Summary ───────────────────────────────────────────────────────────────
-    print(f"\nDone. Results for {len(peer_cache):,} patients:")
-    print(f"  Patients with <{K_PEERS} positive peers : {n_short_pos:,}")
-    print(f"  Patients with <{K_PEERS} negative peers : {n_short_neg:,}")
-    print(f"  Patients with 0 peers on either side  : {n_empty:,}")
+    total    = len(peer_cache)
+    ge5_pos  = sum(1 for pos, _   in peer_cache.values() if len(pos) >= 5)
+    ge5_neg  = sum(1 for _,   neg in peer_cache.values() if len(neg) >= 5)
+
+    print(f"\nDone. Results for {total:,} patients:")
+
+    # How many patients got fewer peers than requested (K=20)
+    # This happens for rare diagnosis/ICU combinations with few matching patients
+    print(f"  Patients with <{K_PEERS} positive peers : {n_short_pos:,}  "
+          f"(got at least 1, just fewer than {K_PEERS})")
+    print(f"  Patients with <{K_PEERS} negative peers : {n_short_neg:,}  "
+          f"(got at least 1, just fewer than {K_PEERS})")
+    print(f"  Patients with 0 peers on either side  : {n_empty:,}  "
+          f"(no match survived hard+age filter — will be skipped in training)")
+
+    # Quality check: what % of patients have at least 5 peers per class
+    # 5 is the minimum to form a meaningful training signal — below that
+    # the contrastive loss has too few examples to learn from
+    print(f"\n  Coverage (>= 5 peers per class):")
+    print(f"    Positive peers : {ge5_pos/total*100:.1f}%  "
+          f"({ge5_pos:,} of {total:,} patients)")
+    print(f"    Negative peers : {ge5_neg/total*100:.1f}%  "
+          f"({ge5_neg:,} of {total:,} patients)")
+    if ge5_pos / total < 0.9 or ge5_neg / total < 0.9:
+        print("  WARNING: <90% coverage — consider loosening hard/age filters before continuing.")
 
     # ── Save ──────────────────────────────────────────────────────────────────
     with open(PEER_CACHE_PATH, "wb") as f:

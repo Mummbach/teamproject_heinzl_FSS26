@@ -440,7 +440,8 @@ if __name__ == "__main__":
     INPUT_DIM = next(iter(embedding_cache.values())).shape[0]  # 128
     model     = PRDNet(input_dim=INPUT_DIM, hidden_dim=HIDDEN_DIM)
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-    loss_fn   = nn.BCEWithLogitsLoss()
+    # pos_weight = neg/pos ratio (~3.23) to counteract class imbalance (23.7% long-stay)
+    loss_fn   = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([16560 / 5130]))
 
     print(f"\nPRDNet  |  input={INPUT_DIM}  hidden={HIDDEN_DIM}  "
           f"params={sum(p.numel() for p in model.parameters()):,}")

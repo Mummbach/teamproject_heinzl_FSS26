@@ -1,15 +1,6 @@
 """
 Preprocessing
-=============
-Encodes categorical features, merges all feature files, and applies
-imputation fitted exclusively on the training split.
-
-Steps:
-  0. Data quality checks    — duplicate stay_id / hadm_id
-  1. Encode demographics    — categorical → binary/numeric (rule-based, no leakage)
-  2. Merge features         — demographics + ICD + ATC + time-series
-  3. Impute                 — fitted on train only, applied to all splits
-  4. Save                   — X_train/val/test + y_train/val/test as parquet
+Encodes categorical features, merges all feature files, and applies imputation fitted exclusively on the training split.
 
 Imputation strategy is controlled by IMPUTATION_STRATEGY below.
 Options:
@@ -22,7 +13,6 @@ No statistics are computed before the split. All imputed values are derived
 solely from training data to prevent data leakage into validation and test sets.
 
 Run AFTER:  03_splitting.py
-Run BEFORE: 05_analysis.py  /  model training
 
 Input:   output/cohort.csv
          output/split_ids.parquet
@@ -41,19 +31,17 @@ import pandas as pd
 import numpy as np
 from config import OUTPUT_DIR
 
-# ── Imputation strategy ───────────────────────────────────────────────────────
+# Imputation strategy 
 # "median" | "mean" | "rf"
-# Switch here to compare strategies; re-run pipeline and evaluate model performance.
 IMPUTATION_STRATEGY = "median"
 
-# ── Missingness flags ─────────────────────────────────────────────────────────
+# Missingness flags 
 # True  — keep _missing binary flags as extra features (recommended with median/mean)
 # False — drop _missing flags (recommended when using -1 sentinel imputation)
 USE_MISSINGNESS_FLAGS = True
 
-# ── Aggregated vital stats ────────────────────────────────────────────────────
-# True  — include aggregated vital sign stats from ts_features.parquet
-#         (mean, std, slope, etc. per vital over 48h)
+# Aggregated vital stats
+# True  — include aggregated vital sign stats(mean, std, slope, etc. per vital over 48h)
 # False — static only: demographics + ICD + ATC
 USE_AGGREGATED_VITALS = True
 
@@ -61,7 +49,6 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 
 # LOAD
-
 cohort    = pd.read_csv(OUTPUT_DIR / "cohort.csv", parse_dates=["intime", "outtime"])
 split_ids = pd.read_parquet(OUTPUT_DIR / "split_ids.parquet")
 icd       = pd.read_parquet(OUTPUT_DIR / "icd_features.parquet")
@@ -75,11 +62,8 @@ for s in ["train", "val", "test"]:
     print(f"  {s:<6}: {(split_ids['split']==s).sum():,}")
 
 
-# STEP 0 — DATA QUALITY CHECKS
-
-print("\n" + "=" * 60)
-print("STEP 0 — Data quality checks")
-print("=" * 60)
+#DATA QUALITY CHECKS
+print("Data quality checks")
 
 dup_stays = cohort["stay_id"].duplicated().sum()
 assert dup_stays == 0, f"{dup_stays} duplicate stay_ids found"
@@ -94,18 +78,12 @@ else:
 print(f"  Total rows          : {len(cohort):,}")
 
 
-# STEP 1 — ENCODE DEMOGRAPHICS
+# ENCODE DEMOGRAPHICS
 # All transformations here are rule-based (fixed mappings, no statistics).
-# They can safely run on the full cohort without leakage.
-
-print("\n" + "=" * 60)
-print("STEP 1 — Encoding demographics")
-print("=" * 60)
-
+print("Encoding demographics")
 static = cohort[["stay_id"]].copy()
 
 # Age: continuous. NaN possible if anchor fields are missing; keep as NaN here —
-# imputation happens in Step 3, fitted on train only.
 static["age"] = cohort["age_at_icu"].values
 
 # Binary: 1 = male, 0 = female.
@@ -155,7 +133,7 @@ static["loc_other"]          = (
     ~loc.str.contains("TRANSFER|REFERRAL")
 ).astype(int)
 
-# NOTE: discharge_location excluded — only known at discharge (future leakage).
+# discharge_location excluded; only known at discharge (future leakage).
 
 # Marital status: 4 binary flags; NaN/unknown → all 0.
 mar = cohort["marital_status"].fillna("UNKNOWN").str.upper().str.strip()
@@ -179,7 +157,6 @@ for col_suffix, full_name in ICU_DUMMIES.items():
     static[f"icu_{col_suffix}"] = (icu_type == full_name).astype(int)
 
 # Admission era: ordinal encoding of anchor_year_group.
-# Captures temporal trends in LOS across the MIMIC-IV collection period.
 YEAR_GROUP_ORDER = {
     "2008 - 2010": 0,
     "2011 - 2013": 1,
@@ -195,11 +172,8 @@ feature_cols = [c for c in static.columns if c != "stay_id"]
 print(f"\n  {len(feature_cols)} demographic features encoded")
 
 
-# STEP 2 — MERGE ALL FEATURES
-
-print("\n" + "=" * 60)
-print("STEP 2 — Merging all features")
-print("=" * 60)
+# MERGE ALL FEATURES
+print("Merging all features")
 
 features_all = (
     labels[["stay_id"]]
@@ -218,11 +192,8 @@ all_feature_cols = [c for c in features_all.columns if c != "stay_id"]
 print(f"  total        : {len(all_feature_cols)} features")
 
 
-# STEP 3 — SPLIT + IMPUTE
-
-print("\n" + "=" * 60)
-print("STEP 3 — Split + imputation (train median only)")
-print("=" * 60)
+# SPLIT + IMPUTE
+print("Split + imputation (train median only)")
 
 train_ids = set(split_ids[split_ids["split"] == "train"]["stay_id"])
 val_ids   = set(split_ids[split_ids["split"] == "val"]["stay_id"])
@@ -269,7 +240,7 @@ elif IMPUTATION_STRATEGY == "rf":
     from sklearn.impute import IterativeImputer
     from sklearn.ensemble import RandomForestRegressor
 
-    print("  WARNING: RF imputation is slow on large datasets.")
+    # RF imputation is slow on large datasets
     imputer = IterativeImputer(
         estimator=RandomForestRegressor(n_estimators=10, random_state=42, n_jobs=-1),
         max_iter=3,
@@ -312,12 +283,8 @@ for name, y_split in [("train", y_train), ("val", y_val), ("test", y_test)]:
     print(f"  {name:<6}: {n:>7,} stays  positive rate: {pos:.1f}%")
 
 
-# STEP 4 — SAVE
-
-print("\n" + "=" * 60)
-print("STEP 4 — Saving splits")
-print("=" * 60)
-
+#SAVE
+print("Saving splits")
 splits = {
     "X_train": X_train, "y_train": y_train,
     "X_val":   X_val,   "y_val":   y_val,

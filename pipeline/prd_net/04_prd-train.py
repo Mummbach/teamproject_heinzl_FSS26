@@ -37,13 +37,12 @@ from sklearn.metrics import f1_score
 
 sys.path.append(str(Path(__file__).parent.parent))
 from config import OUTPUT_DIR, ICD_CATEGORIES
-from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE, HIDDEN_DIM, LR, EPOCHS, PATIENCE, K_PEERS, AGE_TOLERANCE
+from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE, HIDDEN_DIM, LR, EPOCHS, PATIENCE, K_PEERS, AGE_TOLERANCE, GCS_TOLERANCE
 
 # Clinical filter column names — must match 02_peer-groups.py exactly
 ICU_COLS = ["icu_micu", "icu_sicu", "icu_ccu", "icu_cvicu",
             "icu_micu_sicu", "icu_tsicu", "icu_neuro_sicu"]
 ICD_COLS = [f"icd_{cat}" for cat in ICD_CATEGORIES]
-ADM_COLS = ["adm_emergency", "adm_urgent", "adm_elective", "adm_observation"]
 import importlib.util as _ilu
 _spec = _ilu.spec_from_file_location("prd_model", Path(__file__).parent / "03_prd-model.py")
 _mod  = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_mod)
@@ -249,6 +248,7 @@ def build_filtered_prototypes(
     embedding_cache: dict,
     k: int,
     age_tol: int,
+    gcs_tol: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     For each query patient (val or test), apply the same ICD+ICU+age filter
@@ -280,10 +280,10 @@ def build_filtered_prototypes(
     """
     all_train_emb = np.stack([embedding_cache[int(sid)] for sid in all_train_stay_ids])
 
-    train_icd = train_df[ICD_COLS].values   # (N_train, n_icd)
-    train_icu = train_df[ICU_COLS].values   # (N_train, n_icu)
-    train_adm = train_df[ADM_COLS].values   # (N_train, n_adm)
-    train_age = train_df["age"].values       # (N_train,)
+    train_icd = train_df[ICD_COLS].values              # (N_train, n_icd)
+    train_icu = train_df[ICU_COLS].values              # (N_train, n_icu)
+    train_age = train_df["age"].values                  # (N_train,)
+    train_gcs = train_df["gcs_total_first"].values      # (N_train,)
 
     pos_global_idx = np.where(all_train_labels == 1)[0]
     neg_global_idx = np.where(all_train_labels == 0)[0]
@@ -292,8 +292,8 @@ def build_filtered_prototypes(
     sid_to_row = {int(sid): i for i, sid in enumerate(query_df["stay_id"].values)}
     query_icd  = query_df[ICD_COLS].values
     query_icu  = query_df[ICU_COLS].values
-    query_adm  = query_df[ADM_COLS].values
     query_age  = query_df["age"].values
+    query_gcs  = query_df["gcs_total_first"].values
 
     N          = len(query_stay_ids)
     emb_dim    = all_train_emb.shape[1]
@@ -310,21 +310,23 @@ def build_filtered_prototypes(
         q_row  = sid_to_row[int(sid)]
         target = embedding_cache[int(sid)]
 
-        # Hard filter: same primary ICD chapter + ICU type + admission type (binary match)
+        # Hard filter: same primary ICD chapter + ICU type (binary match)
         q_icd = int(np.argmax(query_icd[q_row])) if query_icd[q_row].max() == 1 else None
         q_icu = int(np.argmax(query_icu[q_row])) if query_icu[q_row].max() == 1 else None
-        q_adm = int(np.argmax(query_adm[q_row])) if query_adm[q_row].max() == 1 else None
 
         mask = np.ones(len(train_df), dtype=bool)
         if q_icd is not None:
             mask &= train_icd[:, q_icd] == 1
         if q_icu is not None:
             mask &= train_icu[:, q_icu] == 1
-        if q_adm is not None:
-            mask &= train_adm[:, q_adm] == 1
 
         # Age filter: within ±age_tol years
         mask &= np.abs(train_age - query_age[q_row]) <= age_tol
+
+        # GCS filter: within ±gcs_tol points (skip if query GCS missing)
+        q_gcs = query_gcs[q_row]
+        if not np.isnan(q_gcs):
+            mask &= (np.abs(train_gcs - q_gcs) <= gcs_tol) | np.isnan(train_gcs)
 
         candidates = np.where(mask)[0]
         pos_cands  = candidates[all_train_labels[candidates] == 1]
@@ -438,7 +440,7 @@ if __name__ == "__main__":
     print("Building clinically filtered val prototypes...")
     val_pos_proto_raw, val_neg_proto_raw = build_filtered_prototypes(
         X_val, val_stay_ids, X_train, all_train_stay_ids, labels_all,
-        embedding_cache, K_PEERS, AGE_TOLERANCE,
+        embedding_cache, K_PEERS, AGE_TOLERANCE, GCS_TOLERANCE,
     )
     print(f"  Done — {len(val_stay_ids):,} val prototypes built")
 

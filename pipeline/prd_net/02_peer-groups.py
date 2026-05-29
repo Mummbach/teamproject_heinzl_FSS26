@@ -36,9 +36,6 @@ ICU_COLS = [
 # ICD chapter columns derived from config.ICD_CATEGORIES (02_features.py)
 ICD_COLS = [f"icd_{cat}" for cat in ICD_CATEGORIES]
 
-# Admission type columns — emergency vs elective patients have fundamentally
-# different expected LOS trajectories and should not be mixed as peers
-ADM_COLS = ["adm_emergency", "adm_urgent", "adm_elective", "adm_observation"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -63,11 +60,10 @@ def _hard_filter(target_idx: int, train_df: pd.DataFrame) -> np.ndarray:
     """
     target = train_df.iloc[target_idx]
 
-    # Find which ICD chapter, ICU type, and admission type the target belongs to
-    # Each patient has exactly one 1 in each of these column groups
+    # Find which ICD chapter and ICU type the target belongs to
+    # Each patient has exactly one 1 in ICD_COLS and one 1 in ICU_COLS
     target_icd = next((c for c in ICD_COLS if target[c] == 1), None)
     target_icu = next((c for c in ICU_COLS if target[c] == 1), None)
-    target_adm = next((c for c in ADM_COLS if target[c] == 1), None)
 
     mask = pd.Series(True, index=train_df.index)
 
@@ -76,9 +72,6 @@ def _hard_filter(target_idx: int, train_df: pd.DataFrame) -> np.ndarray:
 
     if target_icu is not None:
         mask &= train_df[target_icu] == 1
-
-    if target_adm is not None:
-        mask &= train_df[target_adm] == 1
 
     # Exclude the target patient itself
     mask.iloc[target_idx] = False
@@ -119,6 +112,44 @@ def _age_filter(target_idx: int, train_df: pd.DataFrame,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SOFT FILTER (GCS)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _gcs_filter(target_idx: int, train_df: pd.DataFrame,
+                candidates: np.ndarray, gcs_tol: int) -> np.ndarray:
+    """
+    From the age-filtered candidates, keep only those within gcs_tol points
+    of the target patient's GCS total at admission.
+
+    GCS (Glasgow Coma Scale) ranges 3–15 and measures neurological severity.
+    A tolerance of ±3 keeps patients in comparable severity bands:
+      severe (3–8), moderate (9–12), mild (13–15).
+
+    Candidates with missing GCS are kept — they cannot be compared but should
+    not be excluded just because the value was not recorded.
+
+    Args:
+        target_idx : row index of the target patient in train_df.
+        train_df   : DataFrame containing a 'gcs_total_first' column.
+        candidates : row indices surviving the age filter.
+        gcs_tol    : maximum absolute GCS difference allowed.
+
+    Returns:
+        np.ndarray of row indices passing the GCS filter.
+    """
+    target_gcs = train_df.iloc[target_idx]["gcs_total_first"]
+
+    # If target GCS is missing, skip this filter entirely
+    if pd.isna(target_gcs):
+        return candidates
+
+    candidate_gcs = train_df.iloc[candidates]["gcs_total_first"].values
+    within_tol = (np.abs(candidate_gcs - target_gcs) <= gcs_tol) | np.isnan(candidate_gcs)
+
+    return candidates[within_tol]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # PEER RETRIEVAL
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -129,6 +160,7 @@ def get_peers(
     train_labels,
     k: int = 20,
     age_tol: int = 10,
+    gcs_tol: int = 3,
 ) -> tuple[list[int], list[int]]:
     """
     Find positive and negative peers for a single target patient.
@@ -149,6 +181,7 @@ def get_peers(
         k               : number of peers to return per class.
         age_tol         : maximum absolute age difference (years) for a
                           candidate to be considered age-matched.
+        gcs_tol         : maximum absolute GCS total difference at admission.
 
     Returns:
         positive_peer_indices : list of up to k row indices (into train_df)
@@ -163,6 +196,9 @@ def get_peers(
 
     # Step 2: soft filter — within age_tol years
     candidates = _age_filter(target_idx, train_df, candidates, age_tol)
+
+    # Step 3: soft filter — within gcs_tol points of GCS total at admission
+    candidates = _gcs_filter(target_idx, train_df, candidates, gcs_tol)
 
     # Step 3: split by outcome label
     labels_candidates = train_labels[candidates]
@@ -193,7 +229,7 @@ def get_peers(
 
 if __name__ == "__main__": # only run if directly started from this file
     from config import OUTPUT_DIR
-    from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, K_PEERS, AGE_TOLERANCE
+    from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, K_PEERS, AGE_TOLERANCE, GCS_TOLERANCE
 
     # ── Load embeddings ───────────────────────────────────────────────────────
     print("Loading embeddings...")
@@ -224,7 +260,7 @@ if __name__ == "__main__": # only run if directly started from this file
 
     for i in tqdm(range(len(train_df)), desc="Peers", unit="patient"):
         pos, neg = get_peers(i, train_df, train_features, train_labels,
-                             k=K_PEERS, age_tol=AGE_TOLERANCE)
+                             k=K_PEERS, age_tol=AGE_TOLERANCE, gcs_tol=GCS_TOLERANCE)
         peer_cache[int(stay_ids[i])] = (pos, neg)
 
         if len(pos) < K_PEERS: n_short_pos += 1

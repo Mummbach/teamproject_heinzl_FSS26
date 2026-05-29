@@ -37,7 +37,7 @@ from sklearn.metrics import f1_score
 
 sys.path.append(str(Path(__file__).parent.parent))
 from config import OUTPUT_DIR, ICD_CATEGORIES
-from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE, HIDDEN_DIM, LR, EPOCHS, PATIENCE, K_PEERS, AGE_TOLERANCE, GCS_TOLERANCE
+from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE, HIDDEN_DIM, LR, EPOCHS, PATIENCE, K_PEERS, AGE_TOLERANCE
 
 # Clinical filter column names — must match 02_peer-groups.py exactly
 ICU_COLS = ["icu_micu", "icu_sicu", "icu_ccu", "icu_cvicu",
@@ -248,7 +248,6 @@ def build_filtered_prototypes(
     embedding_cache: dict,
     k: int,
     age_tol: int,
-    gcs_tol: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     For each query patient (val or test), apply the same ICD+ICU+age filter
@@ -281,9 +280,8 @@ def build_filtered_prototypes(
     all_train_emb = np.stack([embedding_cache[int(sid)] for sid in all_train_stay_ids])
 
     train_icd = train_df[ICD_COLS].values              # (N_train, n_icd)
-    train_icu = train_df[ICU_COLS].values              # (N_train, n_icu)
-    train_age = train_df["age"].values                  # (N_train,)
-    train_gcs = train_df["gcs_total_first"].values      # (N_train,)
+    train_icu = train_df[ICU_COLS].values   # (N_train, n_icu)
+    train_age = train_df["age"].values       # (N_train,)
 
     pos_global_idx = np.where(all_train_labels == 1)[0]
     neg_global_idx = np.where(all_train_labels == 0)[0]
@@ -293,7 +291,6 @@ def build_filtered_prototypes(
     query_icd  = query_df[ICD_COLS].values
     query_icu  = query_df[ICU_COLS].values
     query_age  = query_df["age"].values
-    query_gcs  = query_df["gcs_total_first"].values
 
     N          = len(query_stay_ids)
     emb_dim    = all_train_emb.shape[1]
@@ -323,11 +320,6 @@ def build_filtered_prototypes(
         # Age filter: within ±age_tol years
         mask &= np.abs(train_age - query_age[q_row]) <= age_tol
 
-        # GCS filter: within ±gcs_tol points (skip if query GCS missing)
-        q_gcs = query_gcs[q_row]
-        if not np.isnan(q_gcs):
-            mask &= (np.abs(train_gcs - q_gcs) <= gcs_tol) | np.isnan(train_gcs)
-
         candidates = np.where(mask)[0]
         pos_cands  = candidates[all_train_labels[candidates] == 1]
         neg_cands  = candidates[all_train_labels[candidates] == 0]
@@ -352,8 +344,8 @@ def val_epoch(model, val_emb: torch.Tensor, val_labels: torch.Tensor,
               val_pos_proto_raw: torch.Tensor, val_neg_proto_raw: torch.Tensor,
               loss_fn) -> tuple[float, float]:
     """
-    Evaluate on the full validation set in one pass using pre-computed
-    clinically filtered prototypes (built once before training starts).
+    Evaluate on the full validation set using pre-computed clinically filtered
+    prototypes (built once before training with ICD+ICU+age filter).
 
     Prototypes are re-encoded with current model weights each call so they
     reflect the evolving representation space.
@@ -371,10 +363,10 @@ def val_epoch(model, val_emb: torch.Tensor, val_labels: torch.Tensor,
     """
     model.eval()
     with torch.no_grad():
-        pos_proto        = model.encode(val_pos_proto_raw)
-        neg_proto        = model.encode(val_neg_proto_raw)
-        logits, _, _     = model(val_emb, pos_proto, neg_proto)
-        loss             = loss_fn(logits, val_labels).item()
+        pos_proto    = model.encode(val_pos_proto_raw)
+        neg_proto    = model.encode(val_neg_proto_raw)
+        logits, _, _ = model(val_emb, pos_proto, neg_proto)
+        loss         = loss_fn(logits, val_labels).item()
 
     logits_np = logits.numpy()
     labels_np = val_labels.numpy()
@@ -440,7 +432,7 @@ if __name__ == "__main__":
     print("Building clinically filtered val prototypes...")
     val_pos_proto_raw, val_neg_proto_raw = build_filtered_prototypes(
         X_val, val_stay_ids, X_train, all_train_stay_ids, labels_all,
-        embedding_cache, K_PEERS, AGE_TOLERANCE, GCS_TOLERANCE,
+        embedding_cache, K_PEERS, AGE_TOLERANCE,
     )
     print(f"  Done — {len(val_stay_ids):,} val prototypes built")
 

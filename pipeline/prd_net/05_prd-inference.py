@@ -41,7 +41,7 @@ from sklearn.metrics import (
 
 sys.path.append(str(Path(__file__).parent.parent))
 from config import OUTPUT_DIR, ICD_CATEGORIES
-from prd_net.config_prd import EMBEDDING_CACHE_PATH, HIDDEN_DIM, K_PEERS, AGE_TOLERANCE, GCS_TOLERANCE
+from prd_net.config_prd import EMBEDDING_CACHE_PATH, HIDDEN_DIM, K_PEERS, AGE_TOLERANCE
 
 ICU_COLS = ["icu_micu", "icu_sicu", "icu_ccu", "icu_cvicu",
             "icu_micu_sicu", "icu_tsicu", "icu_neuro_sicu"]
@@ -106,15 +106,13 @@ all_train_stay_ids = X_train["stay_id"].values
 all_train_labels   = train_labels  # already loaded above
 all_train_emb      = np.stack([emb_dict[int(sid)] for sid in all_train_stay_ids])
 
-train_icd = X_train[ICD_COLS].values              # (N_train, n_icd)
-train_icu = X_train[ICU_COLS].values              # (N_train, n_icu)
-train_age = X_train["age"].values                  # (N_train,)
-train_gcs = X_train["gcs_total_first"].values      # (N_train,)
+train_icd = X_train[ICD_COLS].values   # (N_train, n_icd)
+train_icu = X_train[ICU_COLS].values   # (N_train, n_icu)
+train_age = X_train["age"].values       # (N_train,)
 
 test_icd  = X_test[ICD_COLS].values
 test_icu  = X_test[ICU_COLS].values
 test_age  = X_test["age"].values
-test_gcs  = X_test["gcs_total_first"].values
 
 sid_to_test_row = {int(sid): i for i, sid in enumerate(test_ids)}
 
@@ -144,8 +142,6 @@ for i, sid in enumerate(tqdm(test_ids, desc="Filtered prototypes", leave=False))
     if q_icu is not None:
         mask &= train_icu[:, q_icu] == 1
     mask &= np.abs(train_age - test_age[q]) <= AGE_TOLERANCE
-    if not np.isnan(test_gcs[q]):
-        mask &= (np.abs(train_gcs - test_gcs[q]) <= GCS_TOLERANCE) | np.isnan(train_gcs)
 
     candidates = np.where(mask)[0]
     pos_cands  = candidates[all_train_labels[candidates] == 1]

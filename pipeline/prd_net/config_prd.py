@@ -7,7 +7,6 @@ from config import OUTPUT_DIR
 # ── Peer-group parameters ─────────────────────────────────────────────────────
 K_PEERS       = 20
 AGE_TOLERANCE = 10
-GCS_TOLERANCE = 3   # soft filter: GCS total at admission within ±3 points
 
 # ── Model hyperparameters ─────────────────────────────────────────────────────
 HIDDEN_DIM = 64

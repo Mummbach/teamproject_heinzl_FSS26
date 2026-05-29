@@ -47,10 +47,7 @@ OUTPUT_PATH   = OUTPUT_DIR / "cxr_bert_embeddings.parquet"
 MODEL_NAME = "emilyalsentzer/Bio_ClinicalBERT"
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# STEP 1 — Align reports to ICU stays
-# ═══════════════════════════════════════════════════════════════════════
-
+# Align reports to ICU stays
 print("Loading ICU cohort ...")
 cohort = pd.read_csv(COHORT_PATH, parse_dates=["intime", "outtime"])
 print(f"  cohort stays: {len(cohort):,}")
@@ -98,8 +95,7 @@ aligned = (
 print(f"  stays with report in window: {len(aligned):,}")
 
 
-# ── Load report text files ─────────────────────────────────────────────
-
+# Load report text files
 def get_report_path(subject_id: int, study_id: int) -> Path:
     subject_str = str(int(subject_id))
     return CXR_DIR / f"p{subject_str[:2]}" / f"p{subject_str}" / f"s{int(study_id)}.txt"
@@ -123,10 +119,7 @@ df = aligned[aligned["cxr_report"].notna()].copy()
 print(f"  usable reports: {len(df):,}")
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# STEP 2 — BioClinicalBERT embeddings
-# ═══════════════════════════════════════════════════════════════════════
-
+# BioClinicalBERT embeddings
 print(f"\nLoading {MODEL_NAME} ...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 bert      = AutoModel.from_pretrained(MODEL_NAME)
@@ -171,10 +164,7 @@ for _, row in tqdm(df.iterrows(), total=len(df)):
     combined_emb.append(np.concatenate([ef, ei]))
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# STEP 3 — Save
-# ═══════════════════════════════════════════════════════════════════════
-
+# Save
 out = pd.DataFrame({
     "subject_id": df["subject_id"].values,
     "hadm_id":    df["hadm_id"].values,

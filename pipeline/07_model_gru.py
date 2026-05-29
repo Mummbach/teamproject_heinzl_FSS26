@@ -1,6 +1,5 @@
 """
 GRU Model — ICU Prolonged Stay Prediction
-==========================================
 Predicts whether a patient's ICU stay exceeds 7 days (los_gt7).
 
 Architecture:
@@ -10,9 +9,13 @@ Architecture:
   - Fusion:        concatenates all active branch outputs
   - Output:        single sigmoid neuron (binary classification)
 
+Flags:
+- USE_HOURLY_TIMESERIES:    True, GRU processes 48h × 12 vital signs
+                            False, GRU disabled, static features only (ablation)
+- USE_TEXT:                 True, BioClinicalBERT CXR embeddings added as third branch
+                            False, text branch disabled
+
 Run AFTER:  06_normalize.py  (scaled static features)
-            02_features.py   (timeseries.parquet must exist)
-            11_extract_bioclinicalbert_embeddings.py  (if USE_TEXT = True)
 
 Input:   output/X_train_scaled.parquet  /  X_val_scaled  /  X_test_scaled
          output/y_train.parquet         /  y_val         /  y_test
@@ -37,23 +40,19 @@ from pathlib import Path
 from typing import Optional
 from config import OUTPUT_DIR
 
-# ── Reproducibility ───────────────────────────────────────────────────
+# Reproducibility 
 SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 
-# ── Hourly time-series branch ─────────────────────────────────────────
-# True  — GRU processes 48h × 12 vital features (stündliche Zeitreihe)
-# False — static branch only; GRU is disabled for ablation comparison
+# Hourly time-series branch
 USE_HOURLY_TIMESERIES = True
 
-# ── CXR text branch ───────────────────────────────────────────────────
-# True  — BioClinicalBERT embeddings (1536-dim) added as third branch
-# False — text branch disabled; patients without CXR report unaffected
+# CXR text branch
 USE_TEXT = True
 TEXT_DIM = 64         # projection size for CXR embeddings
 
-# ── Hyperparameters ───────────────────────────────────────────────────
+# Hyperparameters 
 BATCH_SIZE    = 64
 EPOCHS        = 30
 LEARNING_RATE = 1e-3
@@ -66,9 +65,8 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {DEVICE}")
 
 
-# ═══════════════════════════════════════════════════════════════════════
+
 # DATASET
-# ═══════════════════════════════════════════════════════════════════════
 
 class ICUDataset(Dataset):
     """
@@ -128,9 +126,8 @@ class ICUDataset(Dataset):
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════
+
 # MODEL
-# ═══════════════════════════════════════════════════════════════════════
 
 class GRUModel(nn.Module):
     """
@@ -199,9 +196,7 @@ class GRUModel(nn.Module):
         return self.classifier(torch.cat(parts, dim=1)).squeeze(1)
 
 
-# ═══════════════════════════════════════════════════════════════════════
 # METRICS
-# ═══════════════════════════════════════════════════════════════════════
 
 def compute_metrics(labels: np.ndarray, logits: np.ndarray) -> dict:
     probs = 1 / (1 + np.exp(-logits))   # sigmoid
@@ -216,9 +211,8 @@ def compute_metrics(labels: np.ndarray, logits: np.ndarray) -> dict:
     }
 
 
-# ═══════════════════════════════════════════════════════════════════════
+
 # TRAINING LOOP
-# ═══════════════════════════════════════════════════════════════════════
 
 def train_epoch(model, loader, optimizer, criterion):
     model.train()
@@ -248,11 +242,9 @@ def evaluate(model, loader):
     return compute_metrics(labels, logits)
 
 
-# ═══════════════════════════════════════════════════════════════════════
 # MAIN
-# ═══════════════════════════════════════════════════════════════════════
 
-# ── Load data ──────────────────────────────────────────────────────────
+# Load data
 print("Loading data...")
 X_train = pd.read_parquet(OUTPUT_DIR / "X_train_scaled.parquet")
 X_val   = pd.read_parquet(OUTPUT_DIR / "X_val_scaled.parquet")
@@ -280,7 +272,7 @@ print(f"  Train stays          : {len(X_train):,}")
 print(f"  Val stays            : {len(X_val):,}")
 print(f"  Test stays           : {len(X_test):,}")
 
-# ── Class imbalance → pos_weight ───────────────────────────────────────
+# Class imbalance → pos_weight
 # BCEWithLogitsLoss(pos_weight=w) upweights the positive class.
 # w = n_negative / n_positive tells the loss to treat each positive
 # sample as if it were w negative samples.
@@ -290,7 +282,7 @@ pos_weight = torch.tensor([n_neg / n_pos], dtype=torch.float32).to(DEVICE)
 print(f"\nClass balance (train): {n_pos:,} positive / {n_neg:,} negative")
 print(f"  pos_weight = {pos_weight.item():.2f}")
 
-# ── Datasets & DataLoaders ──────────────────────────────────────────────
+# Datasets & DataLoaders
 train_ds = ICUDataset(X_train, y_train, ts, TS_FEATURES, cxr)
 val_ds   = ICUDataset(X_val,   y_val,   ts, TS_FEATURES, cxr)
 test_ds  = ICUDataset(X_test,  y_test,  ts, TS_FEATURES, cxr)
@@ -299,7 +291,7 @@ train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
 val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False)
 test_loader  = DataLoader(test_ds,  batch_size=BATCH_SIZE, shuffle=False)
 
-# ── Model, loss, optimizer ─────────────────────────────────────────────
+# Model, loss, optimizer
 static_input_size = X_train.shape[1] - 1   # exclude stay_id
 
 use_text_actual = USE_TEXT and cxr is not None
@@ -323,7 +315,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
 print(f"\nModel parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-# ── Training ───────────────────────────────────────────────────────────
+# Training
 print(f"\n{'Epoch':<6} {'Loss':<10} {'F1':<8} {'Prec':<8} {'Rec':<8} {'AUROC':<8}")
 print("─" * 52)
 
@@ -352,7 +344,7 @@ for epoch in range(1, EPOCHS + 1):
 
 print(f"\nBest checkpoint: epoch {best_epoch}  (val F1 = {best_val_f1:.4f})")
 
-# ── Test evaluation ────────────────────────────────────────────────────
+# Test evaluation
 print("\nLoading best checkpoint for test evaluation...")
 model.load_state_dict(torch.load(OUTPUT_DIR / "best_gru_model.pt", weights_only=True))
 test_metrics = evaluate(model, test_loader)
@@ -365,7 +357,7 @@ print(f"  F1        : {test_metrics['f1']:.4f}")
 print(f"  AUROC     : {test_metrics['auroc']:.4f}")
 print(f"  AUPRC     : {test_metrics['auprc']:.4f}")
 
-# ── Save training log ──────────────────────────────────────────────────
+# Save training log
 log_df = pd.DataFrame(log_rows)
 log_df.to_csv(OUTPUT_DIR / "training_log.csv", index=False)
 print(f"\nSaved: output/best_gru_model.pt")

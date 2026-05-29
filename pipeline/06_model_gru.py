@@ -14,6 +14,8 @@ Flags:
                             False, GRU disabled, static features only (ablation)
 - USE_TEXT:                 True, BioClinicalBERT CXR embeddings added as third branch
                             False, text branch disabled
+- CXR_ONLY:                 True, cohort restricted to patients with a CXR report (~17.5%)
+                            False, full cohort — patients without report get zero vector
 
 Run AFTER:  05_normalize.py  (scaled static features)
 
@@ -52,14 +54,20 @@ USE_HOURLY_TIMESERIES = True
 USE_TEXT = True
 TEXT_DIM = 64         # projection size for CXR embeddings
 
+# CXR-only cohort
+# True  — train/val/test restricted to patients with a CXR report
+# False — full cohort, patients without report get zero vector (default)
+CXR_ONLY = True
+
 # Hyperparameters 
 BATCH_SIZE    = 64
 EPOCHS        = 30
-LEARNING_RATE = 1e-3
-HIDDEN_SIZE   = 64    # GRU hidden state size
-NUM_LAYERS    = 2     # GRU depth (more layers = more capacity, more regularization needed)
-DROPOUT       = 0.3   # applied between GRU layers and before output
-STATIC_DIM    = 64    # static branch embedding size
+LEARNING_RATE = 6e-3
+HIDDEN_SIZE   = 64
+NUM_LAYERS    = 1
+DROPOUT       = 0.1
+STATIC_DIM    = 32
+TEXT_DIM      = 32
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {DEVICE}")
@@ -150,7 +158,7 @@ class GRUModel(nn.Module):
                  hidden_size: int, num_layers: int,
                  static_dim: int, dropout: float,
                  use_gru: bool = True,
-                 use_text: bool = False, text_dim: int = 64):
+                 use_text: bool = False, text_dim: int = 32):
         super().__init__()
         self.use_gru  = use_gru
         self.use_text = use_text
@@ -264,6 +272,16 @@ else:
     cxr = None
     if USE_TEXT:
         print("  WARNING: USE_TEXT=True but cxr_bert_embeddings.parquet not found — text branch disabled")
+
+if CXR_ONLY and cxr is not None:
+    cxr_ids = set(cxr["stay_id"].values)
+    X_train = X_train[X_train["stay_id"].isin(cxr_ids)]
+    X_val   = X_val[X_val["stay_id"].isin(cxr_ids)]
+    X_test  = X_test[X_test["stay_id"].isin(cxr_ids)]
+    y_train = y_train[y_train["stay_id"].isin(cxr_ids)]
+    y_val   = y_val[y_val["stay_id"].isin(cxr_ids)]
+    y_test  = y_test[y_test["stay_id"].isin(cxr_ids)]
+    print(f"  CXR_ONLY=True — cohort restricted to {len(X_train):,} train / {len(X_val):,} val / {len(X_test):,} test stays")
 
 TS_FEATURES = [c for c in ts.columns if c not in ["stay_id", "hour"]]
 print(f"  Time-series features : {TS_FEATURES}")

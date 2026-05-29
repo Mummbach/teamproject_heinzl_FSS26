@@ -44,7 +44,7 @@ ICD_COLS = [f"icd_{cat}" for cat in ICD_CATEGORIES]
 def _hard_filter(target_idx: int, train_df: pd.DataFrame) -> np.ndarray:
     """
     Return row indices of candidates that share the target patient's primary
-    ICD chapter AND ICU type. The target itself is excluded.
+    ICD diagnosis category AND ICU type. The target itself is excluded.
 
     Hard filter means binary match — either both columns agree or the candidate
     is dropped entirely. This ensures peers are clinically comparable before

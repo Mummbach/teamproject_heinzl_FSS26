@@ -10,8 +10,7 @@ Why clinical filtering?
   During training, peers are filtered by same ICD chapter, same ICU type,
   and age within ±10 years before K-nearest selection. Using raw K-nearest
   (no filter) at test time gives the model structurally different prototypes
-  than it was trained on, degrading F1. Applying the same filter end-to-end
-  closes that gap (0.55 → 0.59 F1).
+  than it was trained on, degrading F1.
 
 Prototype strategy (per test patient):
   1. Hard filter : keep training patients with same primary ICD chapter + ICU type

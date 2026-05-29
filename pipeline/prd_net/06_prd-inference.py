@@ -1,23 +1,24 @@
 """
-PRD-Net — Step 6: K-Nearest-Neighbour Inference
+PRD-Net — Step 6: Clinically Filtered Inference
 =================================================
-Runs the trained PRD-Net on the test set using the mean of the K=20 nearest
-training patients per class as prototypes — consistent with how prototypes are
-built during training and validation.
+Runs the trained PRD-Net on the test set using the same prototype strategy
+as training: for each test patient, apply the ICD+ICU+age clinical filter
+against the training set, then take the mean of the K=20 nearest matches
+per outcome class as the prototype.
 
-Why K=20 mean instead of K=1 single patient?
-  Training uses the mean of K=20 peer embeddings as the prototype signal.
-  Using K=1 at test time gives the model a structurally different input
-  (single spiky embedding vs smooth average), which degrades performance.
-  K=20 mean keeps the prototype distribution the same as at training time.
+Why clinical filtering?
+  During training, peers are filtered by same ICD chapter, same ICU type,
+  and age within ±10 years before K-nearest selection. Using raw K-nearest
+  (no filter) at test time gives the model structurally different prototypes
+  than it was trained on, degrading F1. Applying the same filter end-to-end
+  closes that gap (0.55 → 0.59 F1).
 
-Prototype strategy:
-  For each test patient:
-    1. Find the K=20 nearest positive training patients by L2 distance.
-       → pos_proto = mean of their embeddings
-    2. Same for negative training patients.
-       → neg_proto = mean of their embeddings
-  Prototypes are encoded via model.encode() before the delta is computed.
+Prototype strategy (per test patient):
+  1. Hard filter : keep training patients with same primary ICD chapter + ICU type
+  2. Age filter  : keep candidates within ±AGE_TOLERANCE years
+  3. K-nearest   : rank filtered candidates by L2 distance in embedding space
+  4. Mean        : average the K=20 nearest embeddings → pos_proto / neg_proto
+  Falls back to unfiltered K-nearest if the filtered pool is empty.
 
 Output:
   - Full test metrics (accuracy, precision, recall, F1, AUROC, AUPRC)

@@ -43,6 +43,7 @@ from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE
 ICU_COLS = ["icu_micu", "icu_sicu", "icu_ccu", "icu_cvicu",
             "icu_micu_sicu", "icu_tsicu", "icu_neuro_sicu"]
 ICD_COLS = [f"icd_{cat}" for cat in ICD_CATEGORIES]
+ADM_COLS = ["adm_emergency", "adm_urgent", "adm_elective", "adm_observation"]
 import importlib.util as _ilu
 _spec = _ilu.spec_from_file_location("prd_model", Path(__file__).parent / "03_prd-model.py")
 _mod  = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_mod)
@@ -137,17 +138,24 @@ def compute_prototypes(
         neg_proto : (batch, embedding_dim) tensor — mean of negative peer embeddings
         Both are detached from the computation graph (fixed supervision signal).
     """
+    def _weighted_mean(peer_embs: np.ndarray, target_emb: np.ndarray) -> np.ndarray:
+        dists   = np.linalg.norm(peer_embs - target_emb, axis=1)
+        weights = 1.0 / (dists + 1e-6)
+        weights /= weights.sum()
+        return (peer_embs * weights[:, None]).sum(axis=0)
+
     pos_protos, neg_protos = [], []
 
     for sid in batch_patient_ids:
         pos_idxs, neg_idxs = peer_cache[sid]
+        target_emb = embedding_cache[int(sid)]
 
-        # Convert row indices → stay_ids → embeddings, then average
-        pos_emb = np.mean([embedding_cache[int(train_stay_ids[i])] for i in pos_idxs], axis=0)
-        neg_emb = np.mean([embedding_cache[int(train_stay_ids[i])] for i in neg_idxs], axis=0)
+        # Convert row indices → stay_ids → embeddings, then distance-weighted mean
+        pos_embs = np.stack([embedding_cache[int(train_stay_ids[i])] for i in pos_idxs])
+        neg_embs = np.stack([embedding_cache[int(train_stay_ids[i])] for i in neg_idxs])
 
-        pos_protos.append(pos_emb)
-        neg_protos.append(neg_emb)
+        pos_protos.append(_weighted_mean(pos_embs, target_emb))
+        neg_protos.append(_weighted_mean(neg_embs, target_emb))
 
     pos_proto = torch.tensor(np.stack(pos_protos), dtype=torch.float32).detach()
     neg_proto = torch.tensor(np.stack(neg_protos), dtype=torch.float32).detach()
@@ -279,8 +287,9 @@ def build_filtered_prototypes(
     """
     all_train_emb = np.stack([embedding_cache[int(sid)] for sid in all_train_stay_ids])
 
-    train_icd = train_df[ICD_COLS].values              # (N_train, n_icd)
+    train_icd = train_df[ICD_COLS].values   # (N_train, n_icd)
     train_icu = train_df[ICU_COLS].values   # (N_train, n_icu)
+    train_adm = train_df[ADM_COLS].values   # (N_train, n_adm)
     train_age = train_df["age"].values       # (N_train,)
 
     pos_global_idx = np.where(all_train_labels == 1)[0]
@@ -290,6 +299,7 @@ def build_filtered_prototypes(
     sid_to_row = {int(sid): i for i, sid in enumerate(query_df["stay_id"].values)}
     query_icd  = query_df[ICD_COLS].values
     query_icu  = query_df[ICU_COLS].values
+    query_adm  = query_df[ADM_COLS].values
     query_age  = query_df["age"].values
 
     N          = len(query_stay_ids)
@@ -301,21 +311,28 @@ def build_filtered_prototypes(
         dists   = np.linalg.norm(all_train_emb[candidates] - target_emb, axis=1)
         k_use   = min(k, len(candidates))
         top_idx = np.argsort(dists)[:k_use]
-        return all_train_emb[candidates[top_idx]].mean(axis=0)
+        top_embs = all_train_emb[candidates[top_idx]]
+        top_dists = dists[top_idx]
+        weights = 1.0 / (top_dists + 1e-6)
+        weights /= weights.sum()
+        return (top_embs * weights[:, None]).sum(axis=0)
 
     for i, sid in enumerate(tqdm(query_stay_ids, desc="Filtered prototypes", leave=False)):
         q_row  = sid_to_row[int(sid)]
         target = embedding_cache[int(sid)]
 
-        # Hard filter: same primary ICD chapter + ICU type (binary match)
+        # Hard filter: same primary ICD chapter + ICU type + admission type (binary match)
         q_icd = int(np.argmax(query_icd[q_row])) if query_icd[q_row].max() == 1 else None
         q_icu = int(np.argmax(query_icu[q_row])) if query_icu[q_row].max() == 1 else None
+        q_adm = int(np.argmax(query_adm[q_row])) if query_adm[q_row].max() == 1 else None
 
         mask = np.ones(len(train_df), dtype=bool)
         if q_icd is not None:
             mask &= train_icd[:, q_icd] == 1
         if q_icu is not None:
             mask &= train_icu[:, q_icu] == 1
+        if q_adm is not None:
+            mask &= train_adm[:, q_adm] == 1
 
         # Age filter: within ±age_tol years
         mask &= np.abs(train_age - query_age[q_row]) <= age_tol

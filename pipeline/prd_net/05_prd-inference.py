@@ -46,6 +46,7 @@ from prd_net.config_prd import EMBEDDING_CACHE_PATH, HIDDEN_DIM, K_PEERS, AGE_TO
 ICU_COLS = ["icu_micu", "icu_sicu", "icu_ccu", "icu_cvicu",
             "icu_micu_sicu", "icu_tsicu", "icu_neuro_sicu"]
 ICD_COLS = [f"icd_{cat}" for cat in ICD_CATEGORIES]
+ADM_COLS = ["adm_emergency", "adm_urgent", "adm_elective", "adm_observation"]
 
 # Load PRDNet via importlib (filename starts with digit and contains hyphen)
 _spec = importlib.util.spec_from_file_location(
@@ -116,10 +117,12 @@ all_train_emb      = np.stack([emb_dict[int(sid)] for sid in all_train_stay_ids]
 
 train_icd = X_train[ICD_COLS].values   # (N_train, n_icd)
 train_icu = X_train[ICU_COLS].values   # (N_train, n_icu)
+train_adm = X_train[ADM_COLS].values   # (N_train, n_adm)
 train_age = X_train["age"].values       # (N_train,)
 
 test_icd  = X_test[ICD_COLS].values
 test_icu  = X_test[ICU_COLS].values
+test_adm  = X_test[ADM_COLS].values
 test_age  = X_test["age"].values
 
 sid_to_test_row = {int(sid): i for i, sid in enumerate(test_ids)}
@@ -133,9 +136,13 @@ pos_global_idx = np.where(all_train_labels == 1)[0]
 neg_global_idx = np.where(all_train_labels == 0)[0]
 
 def _knn_mean(candidates, target_emb):
-    dists = np.linalg.norm(all_train_emb[candidates] - target_emb, axis=1)
-    top   = candidates[np.argsort(dists)[:min(K_PEERS, len(candidates))]]
-    return all_train_emb[top].mean(axis=0), int(all_train_stay_ids[top[0]])
+    dists     = np.linalg.norm(all_train_emb[candidates] - target_emb, axis=1)
+    top_idx   = np.argsort(dists)[:min(K_PEERS, len(candidates))]
+    top       = candidates[top_idx]
+    top_dists = dists[top_idx]
+    weights   = 1.0 / (top_dists + 1e-6)
+    weights  /= weights.sum()
+    return (all_train_emb[top] * weights[:, None]).sum(axis=0), int(all_train_stay_ids[top[0]])
 
 for i, sid in enumerate(tqdm(test_ids, desc="Filtered prototypes", leave=False)):
     q      = sid_to_test_row[int(sid)]
@@ -143,12 +150,15 @@ for i, sid in enumerate(tqdm(test_ids, desc="Filtered prototypes", leave=False))
 
     q_icd = int(np.argmax(test_icd[q])) if test_icd[q].max() == 1 else None
     q_icu = int(np.argmax(test_icu[q])) if test_icu[q].max() == 1 else None
+    q_adm = int(np.argmax(test_adm[q])) if test_adm[q].max() == 1 else None
 
     mask = np.ones(len(X_train), dtype=bool)
     if q_icd is not None:
         mask &= train_icd[:, q_icd] == 1
     if q_icu is not None:
         mask &= train_icu[:, q_icu] == 1
+    if q_adm is not None:
+        mask &= train_adm[:, q_adm] == 1
     mask &= np.abs(train_age - test_age[q]) <= AGE_TOLERANCE
 
     candidates = np.where(mask)[0]

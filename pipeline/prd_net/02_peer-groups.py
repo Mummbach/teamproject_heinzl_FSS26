@@ -36,6 +36,9 @@ ICU_COLS = [
 # ICD chapter columns derived from config.ICD_CATEGORIES (02_features.py)
 ICD_COLS = [f"icd_{cat}" for cat in ICD_CATEGORIES]
 
+# Admission type columns — emergency vs elective patients have different LOS trajectories
+ADM_COLS = ["adm_emergency", "adm_urgent", "adm_elective", "adm_observation"]
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -60,10 +63,11 @@ def _hard_filter(target_idx: int, train_df: pd.DataFrame) -> np.ndarray:
     """
     target = train_df.iloc[target_idx]
 
-    # Find which ICD chapter and ICU type the target belongs to
-    # Each patient has exactly one 1 in ICD_COLS and one 1 in ICU_COLS
+    # Find which ICD chapter, ICU type, and admission type the target belongs to
+    # Each patient has exactly one 1 in each of these column groups
     target_icd = next((c for c in ICD_COLS if target[c] == 1), None)
     target_icu = next((c for c in ICU_COLS if target[c] == 1), None)
+    target_adm = next((c for c in ADM_COLS if target[c] == 1), None)
 
     mask = pd.Series(True, index=train_df.index)
 
@@ -72,6 +76,9 @@ def _hard_filter(target_idx: int, train_df: pd.DataFrame) -> np.ndarray:
 
     if target_icu is not None:
         mask &= train_df[target_icu] == 1
+
+    if target_adm is not None:
+        mask &= train_df[target_adm] == 1
 
     # Exclude the target patient itself
     mask.iloc[target_idx] = False

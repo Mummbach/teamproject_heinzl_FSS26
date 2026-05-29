@@ -378,6 +378,31 @@ def val_epoch(model, val_emb: torch.Tensor, val_labels: torch.Tensor,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# STEP 8 — Threshold tuning
+# ══════════════════════════════════════════════════════════════════════════════
+
+def find_best_threshold(logits: np.ndarray, labels: np.ndarray) -> tuple[float, float]:
+    """
+    Scan decision thresholds in [0.10, 0.90] and return the one maximising F1.
+
+    Call this once on val logits from the best checkpoint — never on test data,
+    to avoid leaking label information into the threshold choice.
+
+    Returns:
+        (best_threshold, best_f1)
+    """
+    probs = 1 / (1 + np.exp(-logits))
+    best_thresh, best_f1 = 0.5, 0.0
+    for t in np.arange(0.10, 0.91, 0.01):
+        preds = (probs >= t).astype(int)
+        f1 = f1_score(labels, preds, zero_division=0)
+        if f1 > best_f1:
+            best_f1 = f1
+            best_thresh = round(float(t), 2)
+    return best_thresh, best_f1
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -479,3 +504,19 @@ if __name__ == "__main__":
 
     print(f"\nBest val F1 : {best_val_f1:.4f}")
     print(f"Saved       : {ckpt_path}")
+
+    # ── Threshold tuning on best checkpoint ───────────────────────────────────
+    print("\nTuning decision threshold on val set (best checkpoint)...")
+    model.load_state_dict(torch.load(ckpt_path))
+    model.eval()
+    with torch.no_grad():
+        pos_proto    = model.encode(val_pos_proto_raw)
+        neg_proto    = model.encode(val_neg_proto_raw)
+        logits, _, _ = model(val_emb, pos_proto, neg_proto)
+    best_thresh, tuned_f1 = find_best_threshold(logits.numpy(), val_labels)
+    print(f"  Threshold 0.50 → F1 {best_val_f1:.4f}")
+    print(f"  Threshold {best_thresh:.2f}  → F1 {tuned_f1:.4f}  (optimal)")
+
+    thresh_path = ckpt_dir / "prd_net_v1_threshold.pt"
+    torch.save({"threshold": best_thresh}, thresh_path)
+    print(f"  Saved threshold : {thresh_path}")

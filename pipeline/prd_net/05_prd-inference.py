@@ -56,6 +56,7 @@ _spec.loader.exec_module(_mod)
 PRDNet = _mod.PRDNet
 
 CHECKPOINT_PATH = Path(__file__).parent / "checkpoints" / "prd_net_v1.pt"
+THRESHOLD_PATH  = Path(__file__).parent / "checkpoints" / "prd_net_v1_threshold.pt"
 INPUT_DIM = 128
 
 
@@ -65,6 +66,13 @@ model = PRDNet(input_dim=INPUT_DIM, hidden_dim=HIDDEN_DIM)
 model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location="cpu", weights_only=True))
 model.eval()
 print(f"  Loaded from : {CHECKPOINT_PATH}")
+
+threshold = 0.5
+if THRESHOLD_PATH.exists():
+    threshold = torch.load(THRESHOLD_PATH)["threshold"]
+    print(f"  Decision threshold : {threshold:.2f}  (tuned on val set)")
+else:
+    print(f"  Decision threshold : {threshold:.2f}  (default — run 04_prd-train.py to tune)")
 
 # ── Load embeddings ───────────────────────────────────────────────────────────
 print("Loading embeddings...")
@@ -177,7 +185,7 @@ print(f"  Predictions computed for {N_test:,} test patients")
 
 # ── Full evaluation metrics ───────────────────────────────────────────────────
 probs = 1 / (1 + np.exp(-logits_np))
-preds = (probs >= 0.5).astype(int)
+preds = (probs >= threshold).astype(int)
 
 metrics = {
     "accuracy"  : accuracy_score(test_labels, preds),

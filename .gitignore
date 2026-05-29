@@ -7,6 +7,7 @@ env/
 # Pipeline — data and outputs are never committed
 pipeline/data/
 pipeline/output/
+pipeline/analysis/output/
 
 # Claude memory
 .claude/

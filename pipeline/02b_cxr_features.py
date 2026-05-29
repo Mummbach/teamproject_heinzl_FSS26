@@ -5,7 +5,7 @@ Aligns MIMIC-CXR radiology reports with the ICU cohort and extracts
 BioClinicalBERT embeddings from the FINDINGS and IMPRESSION sections.
 
 Run AFTER:  01_selection.py
-Run BEFORE: 07_model_gru.py
+Run BEFORE: 06_model_gru.py
 
 Input:   output/cohort.csv
          data/mimic-cxr-2.0.0-metadata.csv
@@ -25,6 +25,7 @@ Notes:
   - Patients without a valid report are absent from the output.
     The GRU model handles them via zero-vector fallback.
   - BioClinicalBERT is run in inference-only mode (no fine-tuning).
+  - 5.367 of 30.615 Stays, 17,5%, have report.
 """
 
 import re
@@ -38,7 +39,7 @@ from tqdm import tqdm
 
 from config import DATA_DIR, OUTPUT_DIR, OBS_WINDOW
 
-# ── Paths ─────────────────────────────────────────────────────────────
+# Paths
 CXR_DIR       = DATA_DIR / "files"
 METADATA_PATH = DATA_DIR / "mimic-cxr-2.0.0-metadata.csv"
 COHORT_PATH   = OUTPUT_DIR / "cohort.csv"

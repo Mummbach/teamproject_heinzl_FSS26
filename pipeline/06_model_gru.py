@@ -15,7 +15,7 @@ Flags:
 - USE_TEXT:                 True, BioClinicalBERT CXR embeddings added as third branch
                             False, text branch disabled
 
-Run AFTER:  06_normalize.py  (scaled static features)
+Run AFTER:  05_normalize.py  (scaled static features)
 
 Input:   output/X_train_scaled.parquet  /  X_val_scaled  /  X_test_scaled
          output/y_train.parquet         /  y_val         /  y_test

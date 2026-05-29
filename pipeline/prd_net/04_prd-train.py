@@ -43,6 +43,7 @@ from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE
 ICU_COLS = ["icu_micu", "icu_sicu", "icu_ccu", "icu_cvicu",
             "icu_micu_sicu", "icu_tsicu", "icu_neuro_sicu"]
 ICD_COLS = [f"icd_{cat}" for cat in ICD_CATEGORIES]
+ADM_COLS = ["adm_emergency", "adm_urgent", "adm_elective", "adm_observation"]
 import importlib.util as _ilu
 _spec = _ilu.spec_from_file_location("prd_model", Path(__file__).parent / "03_prd-model.py")
 _mod  = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_mod)
@@ -281,6 +282,7 @@ def build_filtered_prototypes(
 
     train_icd = train_df[ICD_COLS].values   # (N_train, n_icd)
     train_icu = train_df[ICU_COLS].values   # (N_train, n_icu)
+    train_adm = train_df[ADM_COLS].values   # (N_train, n_adm)
     train_age = train_df["age"].values       # (N_train,)
 
     pos_global_idx = np.where(all_train_labels == 1)[0]
@@ -290,6 +292,7 @@ def build_filtered_prototypes(
     sid_to_row = {int(sid): i for i, sid in enumerate(query_df["stay_id"].values)}
     query_icd  = query_df[ICD_COLS].values
     query_icu  = query_df[ICU_COLS].values
+    query_adm  = query_df[ADM_COLS].values
     query_age  = query_df["age"].values
 
     N          = len(query_stay_ids)
@@ -307,15 +310,18 @@ def build_filtered_prototypes(
         q_row  = sid_to_row[int(sid)]
         target = embedding_cache[int(sid)]
 
-        # Hard filter: same primary ICD chapter + ICU type (binary match)
+        # Hard filter: same primary ICD chapter + ICU type + admission type (binary match)
         q_icd = int(np.argmax(query_icd[q_row])) if query_icd[q_row].max() == 1 else None
         q_icu = int(np.argmax(query_icu[q_row])) if query_icu[q_row].max() == 1 else None
+        q_adm = int(np.argmax(query_adm[q_row])) if query_adm[q_row].max() == 1 else None
 
         mask = np.ones(len(train_df), dtype=bool)
         if q_icd is not None:
             mask &= train_icd[:, q_icd] == 1
         if q_icu is not None:
             mask &= train_icu[:, q_icu] == 1
+        if q_adm is not None:
+            mask &= train_adm[:, q_adm] == 1
 
         # Age filter: within ±age_tol years
         mask &= np.abs(train_age - query_age[q_row]) <= age_tol

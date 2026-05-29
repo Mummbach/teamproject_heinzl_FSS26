@@ -13,12 +13,12 @@ Two sets of CXR features are added:
 Patients without a CXR record (~83% of cohort) receive zeros for all CXR
 features plus has_cxr=0.
 
-Run AFTER:  06_normalize.py
+Run AFTER:  06_normalize.py + cxr_03_extract_features.py + cxr_04_extract_embeddings.py
 Run BEFORE: 07b_model_gru_multimodal.py
 
 Input:   output/X_train_scaled.parquet  /  X_val_scaled  /  X_test_scaled
-         ../cxr_structured_features.csv    (Julia's structured features)
-         ../cxr_bert_embeddings.parquet    (Julia's BERT embeddings)
+         output/cxr_structured_features.csv
+         output/cxr_bert_embeddings.parquet
 
 Output:  output/X_train_multimodal.parquet
          output/X_val_multimodal.parquet
@@ -29,15 +29,12 @@ Output:  output/X_train_multimodal.parquet
 import pandas as pd
 import numpy as np
 import pickle
-from pathlib import Path
 from sklearn.decomposition import PCA
 from config import OUTPUT_DIR
 
 # ── Paths ──────────────────────────────────────────────────────────────
-PIPELINE_DIR = Path(__file__).parent
-ROOT_DIR     = PIPELINE_DIR.parent.parent   # Team Project FSS26/
-CXR_STRUCT   = ROOT_DIR / "cxr_structured_features.csv"
-CXR_BERT     = ROOT_DIR / "cxr_bert_embeddings.parquet"
+CXR_STRUCT = OUTPUT_DIR / "cxr_structured_features.csv"
+CXR_BERT   = OUTPUT_DIR / "cxr_bert_embeddings.parquet"
 
 BERT_N_COMPONENTS = 64
 
@@ -68,11 +65,12 @@ print(f"  Rows: {len(bert):,}  Embedding dims: {len(bert_embed_cols)}")
 STRUCT_FEAT_COLS = [c for c in struct.columns if c != "stay_id"]
 
 # ── PCA on BERT embeddings (fit on train only) ─────────────────────────
-print(f"\nFitting PCA ({BERT_N_COMPONENTS} components) on train BERT embeddings...")
 train_stay_ids = set(X_train["stay_id"])
 bert_train = bert[bert["stay_id"].isin(train_stay_ids)][bert_embed_cols].values
 
-pca = PCA(n_components=BERT_N_COMPONENTS, random_state=42)
+n_components = min(BERT_N_COMPONENTS, len(bert_train) - 1, len(bert_embed_cols))
+print(f"\nFitting PCA ({n_components} components) on train BERT embeddings (n_train_cxr={len(bert_train)})...")
+pca = PCA(n_components=n_components, random_state=42)
 pca.fit(bert_train)
 explained = pca.explained_variance_ratio_.sum()
 print(f"  Explained variance: {explained:.1%}")
@@ -81,7 +79,7 @@ print(f"  Explained variance: {explained:.1%}")
 bert_pca = pca.transform(bert[bert_embed_cols].values)
 bert_reduced = pd.DataFrame(
     bert_pca,
-    columns=[f"bert_pca_{i}" for i in range(BERT_N_COMPONENTS)]
+    columns=[f"bert_pca_{i}" for i in range(n_components)]
 )
 bert_reduced.insert(0, "stay_id", bert["stay_id"].values)
 

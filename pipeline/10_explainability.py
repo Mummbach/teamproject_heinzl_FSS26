@@ -2,7 +2,7 @@
 Expanded Explainability — GRU+MLP Baseline Model
 =================================================
 Four complementary explainability expansions on top of the existing
-SHAP beeswarm summary produced by 08_shap.py.
+SHAP beeswarm summary produced by 09_shap.py.
 
   A) Waterfall plots   — per-patient SHAP breakdown for 3 representative
                          patients (highest / median / lowest predicted risk)
@@ -14,8 +14,8 @@ SHAP beeswarm summary produced by 08_shap.py.
                          to assess how well predicted probabilities match
                          actual outcome frequencies
 
-Run AFTER:  08_shap.py  (explanations.parquet must exist)
-            07_model_gru.py  (best_gru_model.pt, predictions.parquet)
+Run AFTER:  09_shap.py  (explanations.parquet must exist)
+            08_model_gru.py  (best_gru_model.pt, predictions.parquet)
 
 Input:   output/explanations.parquet
          output/predictions.parquet
@@ -35,13 +35,10 @@ Output:  output/waterfall_high_risk.png
 import pandas as pd
 import numpy as np
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-from pathlib import Path
+from torch.utils.data import DataLoader
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 from sklearn.calibration import calibration_curve
 
 try:
@@ -50,81 +47,25 @@ except ImportError:
     raise ImportError("Install shap: pip install shap")
 
 from config import OUTPUT_DIR
+from multimodal_utils import (
+    ICUDataset, GRUModel, SHAPWrapper, load_multimodal_model,
+    get_cxr_feature_groups,
+)
+
+from config import OUTPUT_DIR
+from multimodal_utils import (
+    ICUDataset, GRUModel, SHAPWrapper, load_multimodal_model,
+    get_cxr_feature_groups,
+)
 
 SEED       = 42
-N_HEATMAP  = 200   # patients to average for the TS SHAP heatmap
+N_HEATMAP  = 200
 BATCH_SIZE = 256
 DEVICE     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 print(f"Device: {DEVICE}")
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# MODEL DEFINITIONS  (same as 08_shap.py — must match checkpoint)
-# ═══════════════════════════════════════════════════════════════════════
-
-class ICUDataset(Dataset):
-    def __init__(self, X_static, y, ts, ts_features):
-        self.stay_ids    = X_static["stay_id"].values
-        self.static_arr  = X_static.drop(columns=["stay_id"]).values.astype(np.float32)
-        self.labels      = y.set_index("stay_id").loc[self.stay_ids, "los_gt7"].values.astype(np.float32)
-        self.ts_features = ts_features
-
-        ts_pivot = (
-            ts[ts["stay_id"].isin(self.stay_ids)]
-            .sort_values(["stay_id", "hour"])
-            .set_index(["stay_id", "hour"])[ts_features]
-            .fillna(0.0)
-        )
-        self.ts_arr = np.zeros((len(self.stay_ids), 48, len(ts_features)), dtype=np.float32)
-        for i, sid in enumerate(self.stay_ids):
-            if sid in ts_pivot.index.get_level_values("stay_id"):
-                self.ts_arr[i] = ts_pivot.loc[sid].values
-
-    def __len__(self):
-        return len(self.stay_ids)
-
-    def __getitem__(self, idx):
-        return (
-            torch.tensor(self.ts_arr[idx]),
-            torch.tensor(self.static_arr[idx]),
-            torch.tensor(self.labels[idx]),
-        )
-
-
-class GRUModel(nn.Module):
-    def __init__(self, ts_input_size, static_input_size, hidden_size,
-                 num_layers, static_dim, dropout):
-        super().__init__()
-        self.gru = nn.GRU(
-            input_size=ts_input_size, hidden_size=hidden_size,
-            num_layers=num_layers, batch_first=True,
-            dropout=dropout if num_layers > 1 else 0.0,
-        )
-        self.static_branch = nn.Sequential(
-            nn.Linear(static_input_size, static_dim), nn.ReLU(), nn.Dropout(dropout),
-        )
-        self.classifier = nn.Sequential(
-            nn.Dropout(dropout), nn.Linear(hidden_size + static_dim, 32),
-            nn.ReLU(), nn.Dropout(dropout), nn.Linear(32, 1),
-        )
-
-    def forward(self, ts, static):
-        _, h_n     = self.gru(ts)
-        gru_out    = h_n[-1]
-        static_out = self.static_branch(static)
-        return self.classifier(torch.cat([gru_out, static_out], dim=1)).squeeze(1)
-
-
-class SHAPWrapper(nn.Module):
-    def __init__(self, model):
-        super().__init__()
-        self.model = model
-
-    def forward(self, ts, static):
-        return torch.sigmoid(self.model(ts, static)).unsqueeze(1)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -142,44 +83,37 @@ predictions  = pd.read_parquet(OUTPUT_DIR / "predictions.parquet")
 
 TS_FEATURES     = [c for c in ts.columns if c not in ["stay_id", "hour"]]
 STATIC_FEATURES = [c for c in X_test.columns if c != "stay_id"]
+groups          = get_cxr_feature_groups(STATIC_FEATURES)
+CXR_FEATURES    = groups["cxr_all"]
 
 print(f"  Static features      : {len(STATIC_FEATURES)}")
 print(f"  Time-series features : {len(TS_FEATURES)}")
 print(f"  Explanations rows    : {len(explanations):,}")
+if CXR_FEATURES:
+    print(f"  CXR features present : {len(CXR_FEATURES)}")
 
 test_expl  = explanations[explanations["split"] == "test"].reset_index(drop=True)
 test_preds = predictions[predictions["split"] == "test"].reset_index(drop=True)
+test_preds = test_preds.merge(y_test[["stay_id", "los_gt7"]], on="stay_id", how="left")
 
-# Merge with ground truth
-test_preds = test_preds.merge(
-    y_test[["stay_id", "los_gt7"]], on="stay_id", how="left"
+
+# ═══════════════════════════════════════════════════════════════════════
+# LOAD MODEL
+# ═══════════════════════════════════════════════════════════════════════
+
+model = load_multimodal_model(
+    OUTPUT_DIR / "best_gru_model.pt",
+    ts_input_size=len(TS_FEATURES),
+    static_input_size=len(STATIC_FEATURES),
+    device=DEVICE,
 )
-
-# ═══════════════════════════════════════════════════════════════════════
-# LOAD MODEL  (needed for sections B and C)
-# ═══════════════════════════════════════════════════════════════════════
-
-model = GRUModel(
-    ts_input_size     = len(TS_FEATURES),
-    static_input_size = len(STATIC_FEATURES),
-    hidden_size       = 64,
-    num_layers        = 2,
-    static_dim        = 64,
-    dropout           = 0.3,
-).to(DEVICE)
-model.load_state_dict(torch.load(
-    OUTPUT_DIR / "best_gru_model.pt", map_location=DEVICE, weights_only=True
-))
-model.eval()
-
 shap_model = SHAPWrapper(model).to(DEVICE)
 shap_model.eval()
 print("Model loaded.")
 
-# Background set from training data (same as 08_shap.py)
-train_ds = ICUDataset(X_train, y_train, ts, TS_FEATURES)
-rng      = np.random.default_rng(SEED)
-bg_idx   = rng.choice(len(train_ds), size=200, replace=False)
+train_ds  = ICUDataset(X_train, y_train, ts, TS_FEATURES)
+rng       = np.random.default_rng(SEED)
+bg_idx    = rng.choice(len(train_ds), size=min(200, len(train_ds)), replace=False)
 bg_ts     = torch.tensor(train_ds.ts_arr[bg_idx]).to(DEVICE)
 bg_static = torch.tensor(train_ds.static_arr[bg_idx]).to(DEVICE)
 
@@ -259,14 +193,15 @@ for case_name, patient_row in patient_cases.items():
     ax.barh(y_positions, bar_heights, left=bar_bottoms,
             color=bar_colors, edgecolor="white", linewidth=0.5, height=0.7)
 
-    # Feature labels with value annotation
+    # Feature labels with value annotation — tag CXR features if present
     labels = []
     for name, val, sv in zip(names_with_residual, np.append(top_vals, [np.nan]), shap_with_residual):
-        sign  = "+" if sv >= 0 else "−"
+        sign = "+" if sv >= 0 else "−"
+        tag  = " [CXR]" if name in CXR_FEATURES else ""
         if np.isnan(val):
-            labels.append(f"{name}   ({sign}{abs(sv):.3f})")
+            labels.append(f"{name}{tag}   ({sign}{abs(sv):.3f})")
         else:
-            labels.append(f"{name} = {val:.2f}   ({sign}{abs(sv):.3f})")
+            labels.append(f"{name}{tag} = {val:.2f}   ({sign}{abs(sv):.3f})")
 
     ax.set_yticks(y_positions)
     ax.set_yticklabels(labels, fontsize=8)
@@ -334,7 +269,7 @@ print("  Saved: output/dependence_plots.png")
 # ═══════════════════════════════════════════════════════════════════════
 # C) TS SHAP HEATMAP — mean |SHAP| per vital × hour
 # ═══════════════════════════════════════════════════════════════════════
-# The existing 08_shap.py collapses TS SHAP to one number per vital by
+# The existing 09_shap.py collapses TS SHAP to one number per vital by
 # averaging over all 48 hours.  Here we keep the full (48, n_ts) grid
 # for N_HEATMAP test patients and visualise it as a heatmap.
 #
@@ -355,9 +290,11 @@ print(f"  Running GradientExplainer on {len(hm_idx)} test patients...")
 
 # Process in one batch (200 × 48 × 12 fits in RAM for CPU; split if GPU OOM)
 shap_vals = explainer.shap_values([hm_ts, hm_static])
-# shap_vals[0]: shape (N, 48, n_ts_feats)
 
-ts_shap_3d = np.abs(shap_vals[0])         # (N, 48, n_ts_feats)
+ts_raw = shap_vals[0]
+if ts_raw.ndim == 4:
+    ts_raw = ts_raw.squeeze(-1)
+ts_shap_3d = np.abs(ts_raw)         # (N, 48, n_ts_feats)
 heatmap    = ts_shap_3d.mean(axis=0)      # (48, n_ts_feats)  mean |SHAP| per hour × vital
 
 # Normalise each vital's column to [0, 1] so rare-but-important vitals

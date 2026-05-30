@@ -79,8 +79,11 @@ class ICUDataset(Dataset):
 
 class GRUModel(nn.Module):
     def __init__(self, ts_input_size, static_input_size,
-                 hidden_size=64, num_layers=2, static_dim=64, dropout=0.3):
+                 hidden_size=64, num_layers=2, static_dim=64, dropout=0.3,
+                 use_text: bool = False, text_dim: int = 32):
         super().__init__()
+        self.use_text = use_text
+
         self.gru = nn.GRU(
             input_size=ts_input_size, hidden_size=hidden_size,
             num_layers=num_layers, batch_first=True,
@@ -89,16 +92,24 @@ class GRUModel(nn.Module):
         self.static_branch = nn.Sequential(
             nn.Linear(static_input_size, static_dim), nn.ReLU(), nn.Dropout(dropout),
         )
+        if use_text:
+            self.text_branch = nn.Sequential(
+                nn.Linear(1536, text_dim), nn.ReLU(), nn.Dropout(dropout),
+            )
+        fusion_input = hidden_size + static_dim + (text_dim if use_text else 0)
         self.classifier = nn.Sequential(
-            nn.Dropout(dropout), nn.Linear(hidden_size + static_dim, 32),
+            nn.Dropout(dropout), nn.Linear(fusion_input, 32),
             nn.ReLU(), nn.Dropout(dropout), nn.Linear(32, 1),
         )
 
-    def forward(self, ts, static):
+    def forward(self, ts, static, text=None):
         _, h_n     = self.gru(ts)
         gru_out    = h_n[-1]
         static_out = self.static_branch(static)
-        return self.classifier(torch.cat([gru_out, static_out], dim=1)).squeeze(1)
+        parts      = [gru_out, static_out]
+        if self.use_text and text is not None:
+            parts.append(self.text_branch(text))
+        return self.classifier(torch.cat(parts, dim=1)).squeeze(1)
 
     @torch.no_grad()
     def gru_embedding(self, ts_tensor):
@@ -119,11 +130,14 @@ class SHAPWrapper(nn.Module):
 
 
 def load_multimodal_model(checkpoint_path, ts_input_size: int,
-                          static_input_size: int, device) -> GRUModel:
+                          static_input_size: int, device,
+                          use_text: bool = False, text_dim: int = 32) -> GRUModel:
     """Load a GRUModel checkpoint and set to eval mode."""
     model = GRUModel(
         ts_input_size=ts_input_size,
         static_input_size=static_input_size,
+        use_text=use_text,
+        text_dim=text_dim,
     ).to(device)
     model.load_state_dict(torch.load(checkpoint_path, map_location=device, weights_only=True))
     model.eval()

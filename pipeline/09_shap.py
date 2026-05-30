@@ -1,27 +1,28 @@
 """
-SHAP Explainability — GRU+MLP Multimodal Model
-===============================================
-Identical to 08_shap.py but operates on the multimodal model and feature set
-produced by 11_multimodal_fusion.py + 07b_model_gru_multimodal.py.
+SHAP Explainability — GRU Model
+================================
+Computes SHAP attributions for the trained GRU model using
+shap.GradientExplainer.
 
-Extra CXR feature groups surfaced in the SHAP output:
-  • 23 structured CXR features  (pneumonia, edema, ventilator, ...)
-  • up to 64 BERT PCA dims      (bert_pca_0 … bert_pca_N)
-  • 1  has_cxr flag
+Works for both baseline (USE_TEXT=False) and text-branch (USE_TEXT=True)
+checkpoints — automatically detects which static features are CXR-related
+and produces an extra CXR-only summary plot when they are present.
 
-Run AFTER:  07b_model_gru_multimodal.py  (best_gru_multimodal.pt must exist)
-            11_multimodal_fusion.py      (X_*_multimodal.parquet must exist)
+Two sets of attributions are produced:
+  • Static features  — direct SHAP values (one per feature per stay)
+  • Time-series      — mean |SHAP| across 48h per vital sign
 
-Input:   output/X_train_multimodal.parquet  (background reference set)
-         output/X_test_multimodal.parquet
+Run AFTER:  08_model_gru.py  (best_gru_model.pt must exist)
+
+Input:   output/X_train_scaled.parquet
+         output/X_test_scaled.parquet
          output/y_train.parquet / y_test.parquet
          output/timeseries.parquet
-         output/best_gru_multimodal.pt
-         output/scaler_params.parquet
+         output/best_gru_model.pt
 
-Output:  output/explanations_multimodal.parquet
-         output/shap_summary_multimodal.png
-         output/shap_summary_cxr.png          — zoomed view: CXR features only
+Output:  output/explanations.parquet
+         output/shap_summary.png
+         output/shap_summary_cxr.png   — only when CXR features are present
 """
 
 import pandas as pd
@@ -40,7 +41,7 @@ except ImportError:
 from config import OUTPUT_DIR
 from multimodal_utils import (
     ICUDataset, GRUModel, SHAPWrapper, load_multimodal_model,
-    CXR_STRUCT_FEATURES, get_cxr_feature_groups,
+    get_cxr_feature_groups,
 )
 
 SEED       = 42
@@ -57,9 +58,9 @@ print(f"Device: {DEVICE}")
 # LOAD DATA
 # ═══════════════════════════════════════════════════════════════════════
 
-print("Loading multimodal data...")
-X_train = pd.read_parquet(OUTPUT_DIR / "X_train_multimodal.parquet")
-X_test  = pd.read_parquet(OUTPUT_DIR / "X_test_multimodal.parquet")
+print("Loading data...")
+X_train = pd.read_parquet(OUTPUT_DIR / "X_train_scaled.parquet")
+X_test  = pd.read_parquet(OUTPUT_DIR / "X_test_scaled.parquet")
 y_train = pd.read_parquet(OUTPUT_DIR / "y_train.parquet")
 y_test  = pd.read_parquet(OUTPUT_DIR / "y_test.parquet")
 ts      = pd.read_parquet(OUTPUT_DIR / "timeseries.parquet")
@@ -67,18 +68,16 @@ ts      = pd.read_parquet(OUTPUT_DIR / "timeseries.parquet")
 TS_FEATURES     = [c for c in ts.columns if c not in ["stay_id", "hour"]]
 STATIC_FEATURES = [c for c in X_train.columns if c != "stay_id"]
 
-# Identify CXR feature subsets present in the multimodal set
+# Detect CXR feature groups (present when model was trained with USE_TEXT=True)
 groups               = get_cxr_feature_groups(STATIC_FEATURES)
-BERT_PCA_FEATURES    = groups["bert_pca"]
 CXR_FEATURES_PRESENT = groups["cxr_all"]
-BASELINE_FEATURES    = groups["baseline"]
+HAS_CXR_FEATURES     = len(CXR_FEATURES_PRESENT) > 0
 
 print(f"  Time-series features : {len(TS_FEATURES)}")
-print(f"  Static features total: {len(STATIC_FEATURES)}")
-print(f"    Baseline           : {len(BASELINE_FEATURES)}")
-print(f"    CXR structured     : {len([c for c in CXR_STRUCT_FEATURES if c in STATIC_FEATURES])}")
-print(f"    BERT PCA dims      : {len(BERT_PCA_FEATURES)}")
-print(f"    has_cxr flag       : {'has_cxr' in STATIC_FEATURES}")
+print(f"  Static features      : {len(STATIC_FEATURES)}")
+if HAS_CXR_FEATURES:
+    print(f"  CXR features detected: {len(CXR_FEATURES_PRESENT)} "
+          f"(struct={len(groups['cxr_struct'])}, bert_pca={len(groups['bert_pca'])})")
 
 train_ds = ICUDataset(X_train, y_train, ts, TS_FEATURES)
 test_ds  = ICUDataset(X_test,  y_test,  ts, TS_FEATURES)
@@ -92,12 +91,12 @@ test_loader  = DataLoader(test_ds,  batch_size=BATCH_SIZE, shuffle=False)
 # ═══════════════════════════════════════════════════════════════════════
 
 model = load_multimodal_model(
-    OUTPUT_DIR / "best_gru_multimodal.pt",
+    OUTPUT_DIR / "best_gru_model.pt",
     ts_input_size=len(TS_FEATURES),
     static_input_size=len(STATIC_FEATURES),
     device=DEVICE,
 )
-print("Model loaded from best_gru_multimodal.pt")
+print("Model loaded from best_gru_model.pt")
 
 shap_model = SHAPWrapper(model).to(DEVICE)
 shap_model.eval()
@@ -107,7 +106,7 @@ shap_model.eval()
 # BACKGROUND
 # ═══════════════════════════════════════════════════════════════════════
 
-print(f"\nBuilding background set (n={BG_SIZE})...")
+print(f"\nBuilding background set (n={min(BG_SIZE, len(train_ds))})...")
 rng       = np.random.default_rng(SEED)
 bg_idx    = rng.choice(len(train_ds), size=min(BG_SIZE, len(train_ds)), replace=False)
 bg_ts     = torch.tensor(train_ds.ts_arr[bg_idx]).to(DEVICE)
@@ -123,6 +122,7 @@ print("GradientExplainer created.")
 
 def compute_shap_for_loader(loader, dataset_name):
     all_static_shap, all_ts_shap, all_stay_ids = [], [], []
+
     print(f"\nComputing SHAP for {dataset_name} set...")
     offset = 0
     for batch_idx, (batch_ts, batch_static, _) in enumerate(loader):
@@ -130,7 +130,6 @@ def compute_shap_for_loader(loader, dataset_name):
         batch_static = batch_static.to(DEVICE)
         shap_vals    = explainer.shap_values([batch_ts, batch_static])
 
-        # GradientExplainer returns list of arrays; squeeze output dim added by SHAPWrapper
         static_shap = shap_vals[1]
         if static_shap.ndim == 3:
             static_shap = static_shap.squeeze(-1)
@@ -139,25 +138,21 @@ def compute_shap_for_loader(loader, dataset_name):
             ts_shap = ts_shap.squeeze(-1)
 
         all_static_shap.append(static_shap)
-        ts_mean_abs = np.abs(ts_shap).mean(axis=1)
-        all_ts_shap.append(ts_mean_abs)
+        all_ts_shap.append(np.abs(ts_shap).mean(axis=1))
 
         n = batch_ts.shape[0]
         all_stay_ids.extend(loader.dataset.stay_ids[offset: offset + n].tolist())
         offset += n
         print(f"  batch {batch_idx+1}/{len(loader)}", end="\r")
+
     print()
 
-    static_shap_arr = np.vstack(all_static_shap)
-    ts_shap_arr     = np.vstack(all_ts_shap)
-
-    df_static = pd.DataFrame(static_shap_arr, columns=STATIC_FEATURES)
-    df_ts     = pd.DataFrame(ts_shap_arr, columns=[f"ts_shap_{f}" for f in TS_FEATURES])
-
+    df_static = pd.DataFrame(np.vstack(all_static_shap), columns=STATIC_FEATURES)
+    df_ts     = pd.DataFrame(np.vstack(all_ts_shap),
+                             columns=[f"ts_shap_{f}" for f in TS_FEATURES])
     return pd.concat([
         pd.DataFrame({"stay_id": all_stay_ids, "split": dataset_name}),
-        df_static,
-        df_ts,
+        df_static, df_ts,
     ], axis=1)
 
 
@@ -165,50 +160,47 @@ df_test  = compute_shap_for_loader(test_loader,  "test")
 df_train = compute_shap_for_loader(train_loader, "train")
 
 explanations = pd.concat([df_test, df_train], ignore_index=True)
-explanations.to_parquet(OUTPUT_DIR / "explanations_multimodal.parquet", index=False)
-print(f"\nSaved: output/explanations_multimodal.parquet  ({len(explanations):,} rows)")
+explanations.to_parquet(OUTPUT_DIR / "explanations.parquet", index=False)
+print(f"\nSaved: output/explanations.parquet  ({len(explanations):,} rows)")
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# PLOT 1 — Full summary (top 20 static features incl. CXR)
+# PLOT 1 — Full summary (top 20 static features)
 # ═══════════════════════════════════════════════════════════════════════
 
-print("\nGenerating SHAP summary plot (all features)...")
+print("\nGenerating SHAP summary plot...")
 test_static_shap = df_test[STATIC_FEATURES].values
 test_static_vals = X_test.drop(columns=["stay_id"]).values
 
 shap.summary_plot(
-    test_static_shap,
-    test_static_vals,
+    test_static_shap, test_static_vals,
     feature_names=STATIC_FEATURES,
-    max_display=20,
-    show=False,
-    plot_size=(12, 8),
+    max_display=20, show=False, plot_size=(12, 8),
 )
-plt.title("SHAP Feature Importance — Multimodal Static Features (Test Set)", fontsize=13)
+title = "SHAP Feature Importance — Static Features (Test Set)"
+if HAS_CXR_FEATURES:
+    title += "\n(includes CXR structured + BERT features)"
+plt.title(title, fontsize=13)
 plt.tight_layout()
-plt.savefig(OUTPUT_DIR / "shap_summary_multimodal.png", dpi=150, bbox_inches="tight")
+plt.savefig(OUTPUT_DIR / "shap_summary.png", dpi=150, bbox_inches="tight")
 plt.close()
-print("Saved: output/shap_summary_multimodal.png")
+print("Saved: output/shap_summary.png")
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# PLOT 2 — CXR features only (struct + BERT PCA + has_cxr)
+# PLOT 2 — CXR features only (when present)
 # ═══════════════════════════════════════════════════════════════════════
 
-if CXR_FEATURES_PRESENT:
+if HAS_CXR_FEATURES:
     print("\nGenerating CXR-only SHAP summary plot...")
     cxr_idx  = [STATIC_FEATURES.index(c) for c in CXR_FEATURES_PRESENT]
     cxr_shap = test_static_shap[:, cxr_idx]
     cxr_vals = test_static_vals[:, cxr_idx]
 
     shap.summary_plot(
-        cxr_shap,
-        cxr_vals,
+        cxr_shap, cxr_vals,
         feature_names=CXR_FEATURES_PRESENT,
-        max_display=30,
-        show=False,
-        plot_size=(12, 8),
+        max_display=30, show=False, plot_size=(12, 8),
     )
     plt.title("SHAP Feature Importance — CXR Features Only (Test Set)", fontsize=13)
     plt.tight_layout()
@@ -225,12 +217,18 @@ mean_abs = pd.Series(
     np.abs(test_static_shap).mean(axis=0), index=STATIC_FEATURES
 ).sort_values(ascending=False)
 
-print("\nTop 10 overall features (mean |SHAP|):")
+print(f"\nTop 10 static features by mean |SHAP| (test set):")
 for feat, val in mean_abs.head(10).items():
     print(f"  {feat:<40} {val:.4f}")
 
-if CXR_FEATURES_PRESENT:
-    cxr_mean_abs = mean_abs[mean_abs.index.isin(CXR_FEATURES_PRESENT)]
-    print(f"\nTop 10 CXR features (mean |SHAP|):")
-    for feat, val in cxr_mean_abs.head(10).items():
+if HAS_CXR_FEATURES:
+    cxr_mean = mean_abs[mean_abs.index.isin(CXR_FEATURES_PRESENT)]
+    print(f"\nTop 5 CXR features by mean |SHAP|:")
+    for feat, val in cxr_mean.head(5).items():
         print(f"  {feat:<40} {val:.4f}")
+
+    # Feature group comparison
+    print("\nMean |SHAP| by feature group:")
+    print(f"  Baseline clinical : {mean_abs[groups['baseline']].mean():.4f}")
+    print(f"  CXR structured    : {mean_abs[groups['cxr_struct']].mean():.4f}" if groups['cxr_struct'] else "")
+    print(f"  BERT PCA          : {mean_abs[groups['bert_pca']].mean():.4f}"   if groups['bert_pca']   else "")

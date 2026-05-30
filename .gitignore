@@ -7,6 +7,8 @@ env/
 # Pipeline — data and outputs are never committed
 pipeline/data/
 pipeline/output/
+# Exception: allow generated explainability plots
+!pipeline/output/*.png
 
 # Claude memory
 .claude/

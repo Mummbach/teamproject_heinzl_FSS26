@@ -1,6 +1,5 @@
 """
 Data Analysis
-=============
 Exploratory analysis of the cohort and prepared features.
 Run on training data only (where statistics are involved) to avoid leakage.
 
@@ -11,29 +10,29 @@ Sections:
   4. Correlations           — top feature correlations with los_gt7 (train only)
   5. Planned vs. Emergency  — LOS distribution and positive rate by admission type
 
-Run AFTER:  04_preprocessing.py
 Output:     output/analysis/   — txt reports + PNG plots
 """
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
-from pathlib import Path
 from config import OUTPUT_DIR, HOSP_DIR, ICU_DIR
 
-ANALYSIS_DIR = OUTPUT_DIR / "analysis"
-ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
+ANALYSIS_DIR = Path(__file__).parent / "output"
+ANALYSIS_DIR.mkdir(exist_ok=True)
 
 SEP  = "=" * 70
 SEP2 = "-" * 50
 
 
-# ── SECTION 1 — COHORT OVERVIEW (raw tables) ─────────────────────────────────
-
-print(SEP)
-print("SECTION 1 — Cohort overview")
-print(SEP)
+# COHORT OVERVIEW (raw tables)
+print("Cohort overview")
 
 cohort = pd.read_csv(OUTPUT_DIR / "cohort.csv", parse_dates=["intime", "outtime"])
 print(f"\nCohort: {len(cohort):,} stays\n")
@@ -92,11 +91,8 @@ for val, cnt in cohort["admission_type"].value_counts().items():
     print(f"  {val:<40} {cnt:>7,}  ({cnt/len(cohort)*100:.1f}%)")
 
 
-# ── SECTION 2 — LABEL DISTRIBUTION ───────────────────────────────────────────
-
-print(f"\n{SEP}")
-print("SECTION 2 — Label distribution")
-print(SEP)
+# LABEL DISTRIBUTION
+print("Label distribution")
 
 labels = pd.read_parquet(OUTPUT_DIR / "labels.parquet")
 split_ids = pd.read_parquet(OUTPUT_DIR / "split_ids.parquet")
@@ -130,11 +126,8 @@ for diag, cnt in labels["primary_diag"].value_counts().head(10).items():
     print(f"  {diag:<25} {cnt:>7,}  ({cnt/n_tot*100:.1f}%)")
 
 
-# ── SECTION 3 — FEATURE ANALYSIS (training data only) ────────────────────────
-
-print(f"\n{SEP}")
-print("SECTION 3 — Feature analysis (X_train)")
-print(SEP)
+# FEATURE ANALYSIS (training data only)
+print("Feature analysis (X_train)")
 
 X_train_path = OUTPUT_DIR / "X_train.parquet"
 if not X_train_path.exists():
@@ -198,11 +191,8 @@ else:
         print(f"\n  Plot saved: analysis/rates_{group_name}.png")
 
 
-# ── SECTION 4 — CORRELATIONS WITH LABEL (training data only) ─────────────────
-
-print(f"\n{SEP}")
-print("SECTION 4 — Feature correlations with los_gt7 (X_train)")
-print(SEP)
+# CORRELATIONS WITH LABEL (training data only)
+print("Feature correlations with los_gt7 (X_train)")
 
 X_train_path = OUTPUT_DIR / "X_train.parquet"
 if X_train_path.exists():
@@ -240,11 +230,9 @@ print("  Done. All outputs in output/analysis/")
 print(SEP)
 
 
-# ── SECTION 5 — PLANNED vs. EMERGENCY ADMISSIONS ─────────────────────────────
+# PLANNED vs. EMERGENCY ADMISSIONS
 
-print(f"\n{SEP}")
-print("SECTION 5 — Planned vs. Emergency Admissions")
-print(SEP)
+print("Planned vs. Emergency Admissions")
 
 cohort5 = pd.read_csv(OUTPUT_DIR / "cohort.csv")
 
@@ -264,7 +252,7 @@ def map_adm_group(val):
 
 cohort5["adm_group"] = cohort5["admission_type"].map(map_adm_group)
 
-# ── Text summary ─────────────────────────────────────────────────────────────
+# Text summary
 print(f"\n  {'Type':<40} {'N':>7}  {'%':>6}  {'los_gt7 rate':>13}  {'Median LOS':>10}")
 print(f"  {SEP2}")
 for atype, grp in cohort5.groupby("admission_type", sort=False):
@@ -286,7 +274,7 @@ for g in group_order:
     med  = grp["los"].median()
     print(f"  {g:<15} {n:>7,}  {pct:>5.1f}%  {rate:>12.1f}%  {med:>9.1f}d")
 
-# ── Hypothesis check ─────────────────────────────────────────────────────────
+# Hypothesis check
 planned = cohort5[cohort5["adm_group"] == "Planned"]
 emergency = cohort5[cohort5["adm_group"] == "Emergency"]
 urgent = cohort5[cohort5["adm_group"] == "Urgent"]
@@ -306,7 +294,7 @@ if planned_rate < emergency_rate and planned_rate < urgent_rate:
 else:
     print(f"  → NOT confirmed: planned admissions do not have lower positive rate")
 
-# ── Plot 1: Positive rate by group ───────────────────────────────────────────
+# Plot 1: Positive rate by group
 rates = {g: cohort5[cohort5["adm_group"] == g]["los_gt7"].mean() * 100
          for g in group_order}
 colors = ["#e06c75", "#e5c07b", "#56b6c2", "#61afef"]
@@ -322,7 +310,7 @@ fig.savefig(ANALYSIS_DIR / "admission_positive_rate.png", dpi=120)
 plt.close(fig)
 print(f"\n  Plot saved: analysis/admission_positive_rate.png")
 
-# ── Plot 2: LOS distribution by group ────────────────────────────────────────
+# Plot 2: LOS distribution by group
 fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharey=False)
 axes = axes.flatten()
 for i, (g, color) in enumerate(zip(group_order, colors)):
@@ -339,3 +327,226 @@ plt.tight_layout()
 fig.savefig(ANALYSIS_DIR / "admission_los_distribution.png", dpi=120, bbox_inches="tight")
 plt.close(fig)
 print(f"  Plot saved: analysis/admission_los_distribution.png")
+
+
+# AGE ANALYSIS
+print(f"\n{SEP}")
+print("Age analysis")
+print(SEP)
+
+cohort_age = pd.read_csv(OUTPUT_DIR / "cohort.csv")
+labels_age = pd.read_parquet(OUTPUT_DIR / "labels.parquet")
+cohort_age = cohort_age.merge(labels_age[["stay_id", "los_gt7"]], on="stay_id")
+
+print(f"\n  Age distribution:")
+for label, name in [(0, "LOS <= 7d"), (1, "LOS > 7d")]:
+    grp = cohort_age[cohort_age["los_gt7"] == label]["age_at_icu"]
+    print(f"  {name}: mean={grp.mean():.1f}  median={grp.median():.1f}  std={grp.std():.1f}")
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+for label, name, color in [(0, "LOS ≤ 7d", "#61afef"), (1, "LOS > 7d", "#e06c75")]:
+    grp = cohort_age[cohort_age["los_gt7"] == label]["age_at_icu"]
+    axes[0].hist(grp, bins=30, alpha=0.6, label=name, color=color)
+axes[0].set_title("Age distribution by LOS label")
+axes[0].set_xlabel("Age at ICU admission")
+axes[0].set_ylabel("Stays")
+axes[0].legend()
+
+cohort_age.boxplot(column="age_at_icu", by="los_gt7", ax=axes[1], grid=False,
+                   boxprops=dict(color="#6fa8d4"), medianprops=dict(color="red"))
+axes[1].set_title("Age by LOS label")
+axes[1].set_xlabel("los_gt7")
+axes[1].set_ylabel("Age")
+plt.suptitle("")
+plt.tight_layout()
+fig.savefig(ANALYSIS_DIR / "age_distribution.png", dpi=120)
+plt.close(fig)
+print(f"  Plot saved: analysis/age_distribution.png")
+
+
+# ICU UNIT POSITIVE RATES
+print(f"\n{SEP}")
+print("ICU unit analysis")
+print(SEP)
+
+print(f"\n  {'ICU Unit':<55} {'N':>6}  {'LOS > 7d':>9}  {'Median LOS':>10}")
+print(f"  {SEP2}")
+unit_stats = cohort_age.groupby("first_careunit").agg(
+    n=("stay_id", "count"),
+    pos_rate=("los_gt7", "mean"),
+    median_los=("los", "median"),
+).sort_values("pos_rate", ascending=False)
+for unit, row in unit_stats.iterrows():
+    print(f"  {unit:<55} {int(row['n']):>6,}  {row['pos_rate']*100:>8.1f}%  {row['median_los']:>9.1f}d")
+
+rates = unit_stats["pos_rate"] * 100
+fig, ax = plt.subplots(figsize=(9, 4))
+bars = ax.bar(range(len(rates)), rates.values, color="#82c28e")
+ax.bar_label(bars, fmt="%.1f%%", padding=3, fontsize=8)
+ax.set_xticks(range(len(rates)))
+ax.set_xticklabels([u.split("(")[0].strip() for u in rates.index], rotation=20, ha="right", fontsize=8)
+ax.set_ylabel("LOS > 7d rate (%)")
+ax.set_title("Positive rate by ICU unit")
+plt.tight_layout()
+fig.savefig(ANALYSIS_DIR / "icu_unit_positive_rates.png", dpi=120)
+plt.close(fig)
+print(f"  Plot saved: analysis/icu_unit_positive_rates.png")
+
+
+# MORTALITY
+print(f"\n{SEP}")
+print("Mortality in cohort")
+print(SEP)
+
+cohort_raw = pd.read_csv(OUTPUT_DIR / "cohort.csv")
+n_total = len(cohort_raw)
+print(f"\n  Total stays : {n_total:,}")
+print(f"  Note: patients dying within 48h excluded during cohort selection.")
+
+
+# FEATURE COMPLETENESS TABLE
+print(f"\n{SEP}")
+print("Feature completeness (X_train)")
+print(SEP)
+
+X_train_path = OUTPUT_DIR / "X_train.parquet"
+if X_train_path.exists():
+    X_train = pd.read_parquet(X_train_path)
+    feature_cols = [c for c in X_train.columns if c != "stay_id"]
+
+    groups = {
+        "Demographics": [c for c in feature_cols if any(c.startswith(p) for p in
+                         ["age", "gender", "eth_", "ins_", "adm_", "loc_", "icu_", "marital_", "language_", "year_"])],
+        "ICD":          [c for c in feature_cols if c.startswith("icd_")],
+        "ATC":          [c for c in feature_cols if c.startswith("atc_")],
+        "Vitals":       [c for c in feature_cols if not any(c.startswith(p) for p in
+                         ["age", "gender", "eth_", "ins_", "adm_", "loc_", "icu_", "marital_", "language_", "year_", "icd_", "atc_"])],
+    }
+    print(f"\n  {'Group':<15} {'Features':>9}  {'Avg missing %':>14}  {'Near-zero (>95% zeros)':>22}")
+    print(f"  {SEP2}")
+    all_near_zero = []
+    for group, cols in groups.items():
+        if not cols:
+            continue
+        avg_missing = X_train[cols].isnull().mean().mean() * 100
+        binary = [c for c in cols if set(X_train[c].dropna().unique()).issubset({0, 1})]
+        near_zero = [c for c in binary if X_train[c].mean() < 0.05]
+        all_near_zero.extend(near_zero)
+        print(f"  {group:<15} {len(cols):>9,}  {avg_missing:>13.1f}%  {len(near_zero):>22,}")
+
+    if all_near_zero:
+        print(f"\n  Near-zero variance features (<5% positive rate):")
+        for c in sorted(all_near_zero):
+            print(f"    {c:<40} {X_train[c].mean()*100:.2f}%")
+
+
+# SPLIT DISTRIBUTION COMPARISON
+print(f"\n{SEP}")
+print("Split distribution comparison")
+print(SEP)
+
+if X_train_path.exists():
+    split_ids = pd.read_parquet(OUTPUT_DIR / "split_ids.parquet")
+    cohort_split = pd.read_csv(OUTPUT_DIR / "cohort.csv").merge(split_ids, on="stay_id")
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    colors = {"train": "#61afef", "val": "#e5c07b", "test": "#e06c75"}
+    for split, color in colors.items():
+        grp = cohort_split[cohort_split["split"] == split]
+        axes[0].hist(grp["age_at_icu"], bins=30, alpha=0.5, label=split, color=color)
+        axes[1].hist(grp["los"].clip(upper=30), bins=40, alpha=0.5, label=split, color=color)
+    axes[0].set_title("Age distribution across splits")
+    axes[0].set_xlabel("Age")
+    axes[0].legend()
+    axes[1].set_title("LOS distribution across splits (clipped 30d)")
+    axes[1].set_xlabel("LOS (days)")
+    axes[1].legend()
+    plt.tight_layout()
+    fig.savefig(ANALYSIS_DIR / "split_distributions.png", dpi=120)
+    plt.close(fig)
+    print(f"\n  Plot saved: analysis/split_distributions.png")
+
+
+# TIME SERIES COVERAGE
+print(f"\n{SEP}")
+print("Time series coverage")
+print(SEP)
+
+ts_path = OUTPUT_DIR / "timeseries.parquet"
+if ts_path.exists():
+    ts = pd.read_parquet(ts_path)
+    labels_ts = pd.read_parquet(OUTPUT_DIR / "labels.parquet")
+    ts = ts.merge(labels_ts[["stay_id", "los_gt7"]], on="stay_id")
+
+    vital_cols = [c for c in ts.columns if c not in ["stay_id", "hour", "los_gt7"]]
+
+    coverage = (ts[vital_cols].notna().mean() * 100).sort_values(ascending=False)
+    print(f"\n  Vital coverage (% of stay-hours with a value):")
+    for feat, pct in coverage.items():
+        bar = "█" * int(pct / 5)
+        print(f"  {feat:<18} {pct:>5.1f}%  {bar}")
+
+    # Mean trajectory per vital: los_gt7=0 vs 1
+    fig, axes = plt.subplots(4, 4, figsize=(16, 12))
+    axes = axes.flatten()
+    for i, feat in enumerate(vital_cols[:16]):
+        ax = axes[i]
+        for label, name, color in [(0, "LOS ≤ 7d", "#61afef"), (1, "LOS > 7d", "#e06c75")]:
+            grp = ts[ts["los_gt7"] == label].groupby("hour")[feat].mean()
+            ax.plot(grp.index, grp.values, label=name, color=color, linewidth=1.2)
+        ax.set_title(feat, fontsize=9)
+        ax.set_xlabel("Hour", fontsize=7)
+        ax.tick_params(labelsize=7)
+        if i == 0:
+            ax.legend(fontsize=7)
+    for j in range(len(vital_cols), 16):
+        axes[j].set_visible(False)
+    plt.suptitle("Mean vital trajectory over 48h (los_gt7=0 vs 1)", fontsize=12)
+    plt.tight_layout()
+    fig.savefig(ANALYSIS_DIR / "timeseries_trajectories.png", dpi=120)
+    plt.close(fig)
+    print(f"  Plot saved: analysis/timeseries_trajectories.png")
+
+    # Coverage heatmap: hour × vital
+    coverage_matrix = ts.groupby("hour")[vital_cols].apply(lambda x: x.notna().mean())
+    fig, ax = plt.subplots(figsize=(14, 5))
+    im = ax.imshow(coverage_matrix.T.values, aspect="auto", cmap="YlGn", vmin=0, vmax=1)
+    ax.set_xticks(range(0, 48, 4))
+    ax.set_xticklabels(range(0, 48, 4))
+    ax.set_yticks(range(len(vital_cols)))
+    ax.set_yticklabels(vital_cols, fontsize=8)
+    ax.set_xlabel("Hour after ICU admission")
+    ax.set_title("Vital sign coverage heatmap (fraction of stays with measurement)")
+    plt.colorbar(im, ax=ax, label="Coverage fraction")
+    plt.tight_layout()
+    fig.savefig(ANALYSIS_DIR / "timeseries_coverage_heatmap.png", dpi=120)
+    plt.close(fig)
+    print(f"  Plot saved: analysis/timeseries_coverage_heatmap.png")
+
+
+# CXR COVERAGE BY ICU UNIT
+print(f"\n{SEP}")
+print("CXR report coverage by ICU unit")
+print(SEP)
+
+cxr_path = OUTPUT_DIR / "cxr_bert_embeddings.parquet"
+if cxr_path.exists():
+    cxr = pd.read_parquet(cxr_path)[["stay_id"]]
+    cohort_cxr = pd.read_csv(OUTPUT_DIR / "cohort.csv")
+    cohort_cxr["has_cxr"] = cohort_cxr["stay_id"].isin(set(cxr["stay_id"])).astype(int)
+
+    total_cxr = cohort_cxr["has_cxr"].sum()
+    print(f"\n  Overall CXR coverage: {total_cxr:,} / {len(cohort_cxr):,} ({total_cxr/len(cohort_cxr)*100:.1f}%)")
+
+    print(f"\n  {'ICU Unit':<55} {'N':>6}  {'With CXR':>9}  {'Coverage':>9}")
+    print(f"  {SEP2}")
+    for unit, grp in cohort_cxr.groupby("first_careunit"):
+        n = len(grp)
+        n_cxr = grp["has_cxr"].sum()
+        print(f"  {unit:<55} {n:>6,}  {n_cxr:>9,}  {n_cxr/n*100:>8.1f}%")
+else:
+    print("  cxr_bert_embeddings.parquet not found — run 02b_cxr_features.py first.")
+
+print(f"\n{SEP}")
+print("  Done. All outputs in pipeline/analysis/")
+print(SEP)

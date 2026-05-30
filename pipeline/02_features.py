@@ -1,9 +1,7 @@
 """
 Feature Engineering
-====================
-Transforms raw MIMIC-IV event data into three new feature sets that do
-not exist in the source tables — new information is derived from raw codes,
-prescriptions, and time-stamped measurements.
+
+raw codes, prescriptions, and time-stamped measurements.
 
 Sections:
   1. ICD Diagnoses   — maps ICD-9/10 codes to 18 binary disease categories
@@ -20,22 +18,16 @@ Input:   output/cohort.csv
          data/icu/chartevents.csv.gz
          data/icu/outputevents.csv.gz
 
-Output:  output/icd_features.parquet    — 18 binary ICD columns per stay
-         output/atc_features.parquet    — 14 binary ATC columns per stay
-         output/ts_features.parquet     — 12 vitals × summary stats per stay
-         output/labels.parquet          — stay_id, los, los_gt7, primary_diag
+Output:  output/icd_features.parquet    18 binary ICD columns per stay
+         output/atc_features.parquet    14 binary ATC columns per stay
+         output/ts_features.parquet     12 vitals × summary stats per stay
+         output/labels.parquet          stay_id, los, los_gt7, primary_diag
 
-Notes:
-  ATC Level 1 is coarse (1 letter = entire drug class, e.g. N = all neurological).
-  ATC Level 2 (2 chars, e.g. N02 = analgesics) gives more granularity at the
-  cost of more columns and higher sparsity.
-
-  The .apply() ICD mapping is slow on ~500k rows. Vectorised alternative possible.
+         
 """
 
 import pandas as pd
 import numpy as np
-from pathlib import Path
 from config import (
     OUTPUT_DIR, HOSP_DIR, ICU_DIR, MAPPING_PATH,
     ICD9_RANGES, ICD10_MAP, ICD_CATEGORIES,
@@ -48,11 +40,9 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 CHUNK_SIZE = 10_000_000
 
 
-# HELPERS, ICD code mapping
-
+# ICD code mapping
 
 def map_icd9(code: str) -> str:
-    """Map an ICD-9 code to one of 18 disease category names."""
     if not isinstance(code, str) or len(code) == 0:
         return "unknown"
     code = code.strip().upper()
@@ -69,10 +59,7 @@ def map_icd9(code: str) -> str:
 
 
 def map_icd10(code: str) -> str:
-    """Map an ICD-10 code to one of 18 disease category names.
-
-    Tries two-character prefix first to handle D/H codes that span categories.
-    """
+    # Tries two-character prefix first to handle D/H codes that span categories
     if not isinstance(code, str) or len(code) == 0:
         return "unknown"
     code = code.strip().upper()
@@ -81,6 +68,12 @@ def map_icd10(code: str) -> str:
     if code[0] in ICD10_MAP:
         return ICD10_MAP[code[0]]
     return "unknown"
+
+
+def map_icd(code: str, version: int) -> str:
+    return map_icd9(code) if version == 9 else map_icd10(code)
+
+_map_icd_vec = np.vectorize(map_icd)
 
 
 
@@ -96,9 +89,7 @@ print(f"  {len(cohort):,} stays\n")
 
 
 # 1 — ICD DIAGNOSES (18 binary categories)
-
-# Raw ICD codes (thousands of distinct values) are transformed into 18 new binary columns.
-# The mapping captures clinically meaningful disease groups without creating sparsity.
+# Raw ICD codes transformed into 18 new binary columns to reduce sparsity
 
 print("1. ICD Diagnoses → 18 binary categories")
 
@@ -106,11 +97,7 @@ diag = pd.read_csv(HOSP_DIR / "diagnoses_icd.csv.gz", compression="gzip")
 print(f"  {len(diag):,} diagnosis rows loaded")
 
 # Map every raw ICD code to a category label
-diag["icd_category"] = diag.apply(
-    lambda r: map_icd9(r["icd_code"]) if r["icd_version"] == 9
-              else map_icd10(r["icd_code"]),
-    axis=1,
-)
+diag["icd_category"] = _map_icd_vec(diag["icd_code"].values, diag["icd_version"].values)
 
 # Filter to cohort stays only
 diag["stay_id"] = diag["hadm_id"].map(hadm_to_stay)
@@ -130,13 +117,9 @@ print(f"\n  {len(icd_cols)} ICD binary features")
 print(f"  Stays with >= 1 category : {(icd_sum > 0).sum():,}")
 print(f"  Mean categories per stay : {icd_sum.mean():.1f}")
 
-# Primary diagnosis (seq_num == 1) → stored in labels for reporting
+# Primary diagnosis (seq_num == 1) stored in labels for reporting
 primary = diag[diag["seq_num"] == 1].copy()
-primary["primary_diag"] = primary.apply(
-    lambda r: map_icd9(r["icd_code"]) if r["icd_version"] == 9
-              else map_icd10(r["icd_code"]),
-    axis=1,
-)
+primary["primary_diag"] = _map_icd_vec(primary["icd_code"].values, primary["icd_version"].values)
 primary_map = (
     primary.drop_duplicates("hadm_id")
     .set_index("hadm_id")["primary_diag"]
@@ -152,18 +135,14 @@ print(f"  Saved: output/labels.parquet")
 
 
 # 2 — MEDICATIONS / ATC LEVEL 1 (14 binary categories)
-# Raw prescription rows (NDC drug codes) are aggregated and mapped onto 14 new binary
-# drug-class indicators. Only the first 48h after ICU admission are used to avoid
-# leaking information about the outcome.
+# Raw prescription rows aggregated and mapped onto 14 new binary drug-class indicators. 
 
 print("2. Medications → 14 ATC Level-1 binary categories")
 
 # Load NDC → ATC mapping (links prescription drug codes to drug classes)
 print(f"  Loading NDC→ATC mapping...")
 mapping = pd.read_csv(MAPPING_PATH, dtype=str)
-atc_col = next(
-    (c for c in ["ATC4", "ATC", *mapping.columns] if "atc" in c.lower()), None
-)
+atc_col = next((c for c in mapping.columns if "atc" in c.lower()), None)
 assert atc_col is not None, f"No ATC column found. Columns: {mapping.columns.tolist()}"
 
 mapping = mapping.dropna(subset=["NDC", atc_col])
@@ -174,6 +153,7 @@ ndc_to_atc1          = mapping.groupby("ndc_clean")["atc1"].apply(set).to_dict()
 print(f"  {len(ndc_to_atc1):,} unique NDC codes mapped")
 
 # Load prescriptions and filter to first 48h after ICU admission
+# Only the first 48h after ICU admission are used to avoid leaking information about the outcome.
 rx = pd.read_csv(
     HOSP_DIR / "prescriptions.csv.gz",
     usecols=["hadm_id", "starttime", "ndc"],
@@ -216,7 +196,6 @@ print(f"\n  Saved: output/atc_features.parquet")
 # 3 — TIME-SERIES VITALS (12 features × 48h aggregated)
 # Thousands of timestamped measurements are collapsed into summary statistics
 # (mean, median, std, min, max, first, last, slope) per vital per stay.
-# This flat representation can be fed directly into tree-based or MLP models.
 
 print("3. Time-series vitals (12 features × 48h)")
 
@@ -294,10 +273,7 @@ if all(c in gcs_pivot.columns for c in gcs_cols):
 
 
 def compute_slope(group):
-    """Linear trend (slope) of a vital over the observation window.
-
-    Uses closed-form OLS: slope = cov(hours, values) / var(hours)
-    """
+    # OLS slope: cov(hours, values) / var(hours)
     hours  = group["hour"].values.astype(float)
     values = group["valuenum"].values.astype(float)
     mask   = np.isfinite(hours) & np.isfinite(values)
@@ -420,9 +396,8 @@ print(f"  {ts_features['stay_id'].nunique():,} stays × {n_feature_cols} feature
 
 # 4 — HOURLY TIME-SERIES (stay_id × hour × 12 features)
 # Stores the full temporal structure needed for sequence models (GRU, LSTM).
-# Each stay has exactly 48 rows (one per hour). Missing hours are forward-filled
-# then backward-filled; vitals with zero data in the entire 48h remain NaN
-# (the model Dataset should fill these, e.g. with 0 after normalization).
+# Each stay has exactly 48 rows (one per hour). Missing hours are forward-filled then backward-filled; 
+# vitals with zero data in the entire 48h remain NaN (the model Dataset should fill these, e.g. with 0 after normalization).
 
 print("\n4. Hourly time-series (48h × 12 features per stay)")
 

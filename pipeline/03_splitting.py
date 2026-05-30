@@ -1,8 +1,7 @@
 """
 Train / Validation / Test Split
-================================
 Splits the cohort stay_ids into three non-overlapping sets.
-Only stay_id and the stratification label (los_gt7) are needed here —
+Only stay_id and the stratification label (los_gt7) are needed here
 no features are loaded, so no data leakage is possible.
 
 Split:  70 % train  /  15 % validation  /  15 % test
@@ -26,13 +25,13 @@ VAL_RATIO    = 0.15
 TEST_RATIO   = 0.15
 RANDOM_STATE = 42
 
-# Load only what is needed for splitting — no features
+# Load only what is needed for splitting, no features
 cohort = pd.read_csv(OUTPUT_DIR / "cohort.csv", usecols=["stay_id", "los_gt7"])
 print(f"Cohort loaded: {len(cohort):,} stays")
 print(f"  los_gt7 = 1 : {cohort['los_gt7'].sum():,}  ({cohort['los_gt7'].mean()*100:.1f}%)")
 print(f"  los_gt7 = 0 : {(cohort['los_gt7']==0).sum():,}  ({(1-cohort['los_gt7'].mean())*100:.1f}%)")
 
-# Step 1: split off test set
+# split off test set
 trainval, test = train_test_split(
     cohort,
     test_size=TEST_RATIO,
@@ -40,7 +39,7 @@ trainval, test = train_test_split(
     random_state=RANDOM_STATE,
 )
 
-# Step 2: split remainder into train + val
+# split remainder into train + val
 # val_ratio must be adjusted relative to the remaining trainval portion
 val_ratio_adjusted = VAL_RATIO / (1 - TEST_RATIO)
 

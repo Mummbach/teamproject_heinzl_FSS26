@@ -57,7 +57,7 @@ TEXT_DIM = 64         # projection size for CXR embeddings
 # CXR-only cohort
 # True  — train/val/test restricted to patients with a CXR report
 # False — full cohort, patients without report get zero vector (default)
-CXR_ONLY = True
+CXR_ONLY = False
 
 # Hyperparameters 
 BATCH_SIZE    = 64

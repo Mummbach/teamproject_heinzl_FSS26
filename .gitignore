@@ -8,6 +8,7 @@ env/
 pipeline/data/
 pipeline/output/
 pipeline/analysis/output/
+pipeline/explainability/output/
 
 # Claude memory
 .claude/

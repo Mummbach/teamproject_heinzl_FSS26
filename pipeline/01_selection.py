@@ -11,16 +11,10 @@ Pipeline:
             → filter: LOS >= 2 days
             → filter: death within 48h excluded
             → filter: LOS <= 90 days
-            → optional: exclude transfers to acute hospital (EXCLUDE_TRANSFERS)
-            → optional: exclude early deaths 48h–7d    (EXCLUDE_EARLY_DEATHS)
 
 Label:
   los_gt7 = 1  if ICU LOS > 7 days
   los_gt7 = 0  otherwise
-
-Flags:
-  EXCLUDE_EARLY_DEATHS — exclude patients dying 48h–7d after ICU admission
-  EXCLUDE_TRANSFERS    — exclude patients discharged to another acute hospital
 
 Run BEFORE: 02_features.py
 Output:     output/cohort.csv  +  output/cohort_stay_ids.txt
@@ -28,23 +22,6 @@ Output:     output/cohort.csv  +  output/cohort_stay_ids.txt
 
 import pandas as pd
 from config import HOSP_DIR, ICU_DIR, OUTPUT_DIR
-
-# ── Early deaths bias check ───────────────────────────────────────────────────
-# Patients who die between 48h and 7d after ICU admission have los_gt7 = 0,
-# not because they recovered but because they died. This may introduce bias:
-# the model could learn "death signals" as predictors of short stay.
-# True  — exclude these patients (Modell B: bias-reduced cohort)
-# False — keep them (Modell A: current default)
-EXCLUDE_EARLY_DEATHS = False
-
-# ── Transfer patients bias check ──────────────────────────────────────────────
-# Patients discharged to "ACUTE HOSPITAL" are transferred to another facility,
-# not discharged due to recovery or deterioration. Their short ICU stays may
-# reflect logistics rather than clinical trajectory — a potential spurious
-# shortcut for the model.
-# True  — exclude these ~371 patients (1.3% of cohort)
-# False — keep them (default)
-EXCLUDE_TRANSFERS = True
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -120,43 +97,16 @@ df = df[~death_within_48h]
 print(f"  excl. death within 48h:     {len(df):>7,}  (removed {n - len(df):,})")
 n = len(df)
 
-# Optional: exclude patients who died between 48h and 7d (early deaths bias check).
-# These patients have los_gt7 = 0 due to death, not recovery — potential bias.
-# Set EXCLUDE_EARLY_DEATHS = True to run Modell B for comparison.
-if EXCLUDE_EARLY_DEATHS:
-    death_48h_to_7d = (
-        df["deathtime"].notna() &
-        ((df["deathtime"] - df["intime"]).dt.total_seconds() / 3600 > 48) &
-        ((df["deathtime"] - df["intime"]).dt.total_seconds() / 3600 <= 168)
-    )
-    df = df[~death_48h_to_7d]
-    print(f"  excl. death 48h–7d:         {len(df):>7,}  (removed {n - len(df):,})")
-    n = len(df)
-else:
-    early_deaths = (
-        df["deathtime"].notna() &
-        ((df["deathtime"] - df["intime"]).dt.total_seconds() / 3600 > 48) &
-        ((df["deathtime"] - df["intime"]).dt.total_seconds() / 3600 <= 168)
-    )
-    print(f"  early deaths 48h–7d (kept): {early_deaths.sum():>7,}  (EXCLUDE_EARLY_DEATHS=False)")
-
 # ICU LOS > 90 days
 # Extreme outliers may represent data-quality issues or LTACH transfers.
 df = df[df["los"] <= 90]
 print(f"  LOS <= 90 days:             {len(df):>7,}  (removed {n - len(df):,})")
 n = len(df)
 
-# Optional: exclude patients transferred to another acute-care facility.
-# In MIMIC-IV the relevant value is "ACUTE HOSPITAL" (not "TRANSFER TO OTHER
-# FACILITY" which was the MIMIC-III label and does not exist here).
-# Set EXCLUDE_TRANSFERS = True to run the bias-reduced cohort.
-if EXCLUDE_TRANSFERS:
-    df = df[df["discharge_location"] != "ACUTE HOSPITAL"]
-    print(f"  excl. transfers (ACUTE HOSPITAL): {len(df):>7,}  (removed {n - len(df):,})")
-    n = len(df)
-else:
-    transfers = (df["discharge_location"] == "ACUTE HOSPITAL").sum()
-    print(f"  transfers kept (ACUTE HOSPITAL):  {transfers:>7,}  (EXCLUDE_TRANSFERS=False)")
+# INACTIVE FILTERS (activate if needed)
+
+# Patients transferred to another acute-care facility on discharge
+# df = df[df["discharge_location"] != "TRANSFER TO OTHER FACILITY"]
 
 # planned surgical admissions (focus on unplanned/emergency only)
 # df = df[df["admission_type"] != "ELECTIVE"]

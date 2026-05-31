@@ -11,7 +11,7 @@ Sections:
   3. Time-series     — aggregates 12 vitals over 48h into summary statistics
 
 Run AFTER:  01_selection.py
-Run BEFORE: 03_splitting.py
+Run BEFORE: 04_splitting.py
 
 Input:   output/cohort.csv
          data/hosp/diagnoses_icd.csv.gz
@@ -276,22 +276,6 @@ for feat, (lo, hi) in RANGE_FILTERS.items():
     ts_all = ts_all[~bad]
 print(f"  After range filters: {len(ts_all):,}  (removed {n_before - len(ts_all):,})")
 
-# Compute gcs_total = gcs_eye + gcs_verbal + gcs_motor per stay × hour.
-# Only rows where all 3 components are present are included.
-gcs_pivot = (
-    ts_all[ts_all["feature"].isin(["gcs_eye", "gcs_verbal", "gcs_motor"])]
-    .pivot_table(index=["stay_id", "hour"], columns="feature", values="valuenum", aggfunc="mean")
-    .reset_index()
-)
-gcs_cols = ["gcs_eye", "gcs_verbal", "gcs_motor"]
-if all(c in gcs_pivot.columns for c in gcs_cols):
-    gcs_pivot = gcs_pivot.dropna(subset=gcs_cols)
-    gcs_pivot["valuenum"] = gcs_pivot[gcs_cols].sum(axis=1)
-    gcs_total_rows = gcs_pivot[["stay_id", "hour", "valuenum"]].copy()
-    gcs_total_rows["feature"] = "gcs_total"
-    ts_all = pd.concat([ts_all, gcs_total_rows], ignore_index=True)
-    print(f"  Added {len(gcs_total_rows):,} gcs_total rows")
-
 
 def compute_slope(group):
     """Linear trend (slope) of a vital over the observation window.
@@ -478,12 +462,6 @@ ts_hourly_wide.columns.name = None
 for feat in vital_feature_cols:
     if feat not in ts_hourly_wide.columns:
         ts_hourly_wide[feat] = np.nan
-
-# gcs_total = sum of 3 components; NaN if any component is missing
-if all(c in ts_hourly_wide.columns for c in ["gcs_eye", "gcs_verbal", "gcs_motor"]):
-    ts_hourly_wide["gcs_total"] = ts_hourly_wide[["gcs_eye", "gcs_verbal", "gcs_motor"]].sum(
-        axis=1, min_count=3
-    )
 
 # Build complete grid: every stay × every hour 0–47
 all_hours = pd.DataFrame(

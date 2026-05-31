@@ -5,6 +5,41 @@
 
 ---
 
+## ⚙️ Pipeline Configuration
+
+The pipeline behaviour is controlled by flags at the top of each script — no code changes needed, just flip the value and re-run.
+
+### `pipeline/01_selection.py`
+
+| Variable | Values | Description |
+|---|---|---|
+| `EXCLUDE_EARLY_DEATHS` | `False` (default) / `True` | Exclude patients who died between 48h and 7d after ICU admission (bias check) |
+
+### `pipeline/04_preprocessing.py`
+
+| Variable | Values | Description |
+|---|---|---|
+| `IMPUTATION_STRATEGY` | `"median"` (default) / `"mean"` / `"rf"` | Strategy for filling missing feature values |
+| `USE_MISSINGNESS_FLAGS` | `True` (default) / `False` | Include binary `_missing` flags as extra features |
+| `USE_AGGREGATED_VITALS` | `True` (default) / `False` | Include aggregated vital sign stats (mean, std, slope etc.) in the static feature set |
+
+### `pipeline/07_model_gru.py`
+
+| Variable | Values | Description |
+|---|---|---|
+| `USE_HOURLY_TIMESERIES` | `True` (default) / `False` | Enable GRU branch on 48h × 12 vital hourly time-series |
+
+### Typical comparison runs
+
+| Experiment | `USE_AGGREGATED_VITALS` | `USE_HOURLY_TIMESERIES` |
+|---|---|---|
+| Full model | `True` | `True` |
+| No hourly TS (ablation) | `True` | `False` |
+| No aggregated vitals (ablation) | `False` | `True` |
+| Static only (ablation) | `False` | `False` |
+
+---
+
 ## 📌 Research Question
 
 > *How can comparative reasoning against similar patients be leveraged to produce clinically meaningful and faithful explanations for AI-based predictions in critical care?*

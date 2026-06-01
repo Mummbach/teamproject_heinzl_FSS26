@@ -683,7 +683,7 @@
       <div class="card"><h4>Cohort (MIMIC-IV)</h4><div class="big-num">30,615</div><p>ICU stays analysed</p></div>
       <div class="card gold"><h4>Test Set</h4><div class="big-num gold">4,593</div><p>held-out patients</p></div>
       <div class="card green"><h4>Positive Rate</h4><div class="big-num green">23.6%</div><p>stayed &gt; 7 days</p></div>
-      <div class="card"><h4>Imbalance</h4><div class="big-num">3.2 : 1</div><p>negative : positive</p></div>
+      <div class="card"><h4>With CXR Report</h4><div class="big-num">17.5%</div><p>5,367 stays (48h)</p></div>
     </div>
     <div class="card-grid card-grid-2" style="flex:1; gap:16px;">
       <div class="card">
@@ -699,16 +699,16 @@
         <h4>Prediction Setup</h4>
         <ul style="font-size:13.5px;">
           <li><strong>Target:</strong> binary <code>los_gt7</code> — LOS &gt; 7 days</li>
-          <li><strong>Observation window:</strong> first 48h after ICU admission (early prediction, no outcome leakage)</li>
-          <li><strong>Split:</strong> patient-level stratified train / val / test</li>
-          <li><strong>Imbalance handling:</strong> <code>pos_weight</code> ≈ 3.2 in the loss</li>
+          <li><strong>Observation window:</strong> first 48h after ICU admission</li>
+          <li><strong>Three input branches:</strong> time-series vitals · static features · radiology-text embeddings</li>
+          <li><strong>Configuration:</strong> full cohort, text branch enabled (CXR_ONLY = False)</li>
         </ul>
       </div>
     </div>
   </div>
   <div class="slide-footer">
     <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
-    <span>01_selection.py · 02_features.py · 03_splitting.py</span>
+    <span>MIMIC-IV / MIMIC-CXR · LOS &gt; 7 days · test set n = 4,593</span>
   </div>
 </div>
 
@@ -746,23 +746,21 @@
       <div class="arch-block" style="background:var(--accent-gold);">Output: P(LOS &gt; 7d)</div>
     </div>
     <div style="flex:1.15; display:flex; flex-direction:column; gap:10px;">
-      <div class="section-label">Branches &amp; Training</div>
+      <div class="section-label">The Three Branches</div>
       <table class="data-table" style="font-size:13px;">
-        <tr><td>Time-series branch</td><td><strong>GRU over 48h × 13 vitals</strong></td></tr>
-        <tr><td>Static branch</td><td><strong>177 features → dense (32d)</strong></td></tr>
-        <tr><td>Text branch</td><td><strong>BioClinicalBERT → 32d <span class="badge badge-blue">Sec. 2</span></strong></td></tr>
-        <tr><td>Optimizer</td><td><strong>Adam (lr = 1e-3)</strong></td></tr>
-        <tr><td>Loss</td><td><strong>BCEWithLogitsLoss (pos_weight)</strong></td></tr>
-        <tr><td>Regularization</td><td><strong>Dropout · early stopping</strong></td></tr>
+        <tr><td>Time-series branch</td><td><strong>GRU over 48h × 13 vital signs → 64d</strong></td></tr>
+        <tr><td>Static branch</td><td><strong>177 features → 32d</strong></td></tr>
+        <tr><td>Text branch</td><td><strong>CXR embedding 1536d → 32d <span class="badge badge-blue">Sec. 2</span></strong></td></tr>
+        <tr><td>Fusion</td><td><strong>Concatenate → classifier → P(LOS &gt; 7d)</strong></td></tr>
       </table>
       <div class="card gold">
-        <p style="font-size:13px;"><strong>Class imbalance:</strong> <code>pos_weight</code> ≈ 3.2 compensates the 23.6% positive rate, prioritising recall on long-stay patients — appropriate for clinical screening.</p>
+        <p style="font-size:13px;"><strong>Text branch:</strong> BioClinicalBERT FINDINGS + IMPRESSION embeddings (1536-dim) projected to 32 dims via <code>Linear(1536→32) → ReLU → Dropout</code>. Only 17.5% of patients have a report; the rest receive a zero vector — covered in Section 2.</p>
       </div>
     </div>
   </div>
   <div class="slide-footer">
     <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
-    <span>07_model_gru.py · PyTorch</span>
+    <span>GRU + static + BioClinicalBERT text branch · MIMIC-IV / MIMIC-CXR</span>
   </div>
 </div>
 
@@ -774,10 +772,10 @@
   </div>
   <div class="slide-body">
     <div class="metric-row" style="flex:0 0 auto;">
-      <div class="metric-box"><div class="val">0.845</div><div class="lbl">AUROC</div></div>
-      <div class="metric-box light-bg"><div class="val">0.625</div><div class="lbl">F1 Score</div></div>
-      <div class="metric-box light-bg"><div class="val">0.802</div><div class="lbl">Accuracy</div></div>
-      <div class="metric-box green-bg"><div class="val">0.638</div><div class="lbl">AUPRC</div></div>
+      <div class="metric-box"><div class="val">0.8451</div><div class="lbl">AUROC</div></div>
+      <div class="metric-box light-bg"><div class="val">0.6252</div><div class="lbl">F1 Score</div></div>
+      <div class="metric-box light-bg"><div class="val">0.8019</div><div class="lbl">Accuracy</div></div>
+      <div class="metric-box green-bg"><div class="val">0.6375</div><div class="lbl">AUPRC</div></div>
     </div>
     <div class="card-grid card-grid-2" style="flex:1; gap:16px; margin-top:14px;">
       <div style="display:flex; flex-direction:column; gap:10px;">
@@ -785,28 +783,29 @@
         <table class="data-table" style="font-size:13.5px;">
           <thead><tr><th>Metric</th><th>Value</th><th>Note</th></tr></thead>
           <tbody>
-            <tr><td>Precision</td><td><strong>0.564</strong></td><td>56% of predicted long stays correct</td></tr>
-            <tr><td>Recall</td><td><strong>0.701</strong></td><td>catches 70% of actual long stays</td></tr>
-            <tr><td>F1 Score</td><td><strong>0.625</strong></td><td>harmonic mean</td></tr>
-            <tr><td>AUROC</td><td><strong>0.845</strong></td><td>ranking / discrimination</td></tr>
-            <tr><td>AUPRC</td><td><strong>0.638</strong></td><td>key metric on imbalanced data</td></tr>
+            <tr><td>Accuracy</td><td><strong>0.8019</strong></td><td>overall correct rate</td></tr>
+            <tr><td>Precision</td><td><strong>0.5643</strong></td><td>56% of predicted long stays correct</td></tr>
+            <tr><td>Recall</td><td><strong>0.7008</strong></td><td>catches 70% of actual long stays</td></tr>
+            <tr><td>F1 Score</td><td><strong>0.6252</strong></td><td>harmonic mean</td></tr>
+            <tr><td>AUROC</td><td><strong>0.8451</strong></td><td>ranking / discrimination</td></tr>
+            <tr><td>AUPRC</td><td><strong>0.6375</strong></td><td>key metric on imbalanced data</td></tr>
           </tbody>
         </table>
       </div>
       <div style="display:flex; flex-direction:column; gap:10px;">
         <div class="section-label">Interpretation</div>
         <div class="card green">
-          <p style="font-size:13.5px; line-height:1.6;"><strong>Strong ranking ability</strong> (AUROC 0.845), competitive with published ICU LOS benchmarks. Recall is prioritised over precision via <code>pos_weight</code> — the right trade-off for clinical screening.</p>
+          <p style="font-size:13.5px; line-height:1.6;"><strong>Strong ranking ability</strong> (AUROC 0.8451) with recall (0.70) above precision (0.56) — the model favours catching long-stay patients, the right trade-off for clinical screening.</p>
         </div>
         <div class="card gold">
-          <p style="font-size:13.5px; line-height:1.6;"><strong>This configuration is now fixed as the baseline</strong> (full cohort, text branch enabled) against which the prototype model in Section 5 is measured.</p>
+          <p style="font-size:13.5px; line-height:1.6;"><strong>This configuration is fixed as the baseline</strong> — full cohort with the text branch enabled (CXR_ONLY = False, best epoch 13) — against which the prototype model in Section 5 is measured.</p>
         </div>
       </div>
     </div>
   </div>
   <div class="slide-footer">
     <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
-    <span>08_crossval.py · Test set (n = 4,593)</span>
+    <span>Full cohort, USE_TEXT = True, CXR_ONLY = False · test set n = 4,593</span>
   </div>
 </div>
 
@@ -868,37 +867,6 @@
   <div class="slide-footer">
     <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
     <span>Text branch · BioClinicalBERT · FINDINGS + IMPRESSION (1536-dim)</span>
-  </div>
-</div>
-
-<!-- SLIDE — missing CXR -->
-<div class="slide">
-  <div class="slide-header">
-    <h2>Handling Missing Reports (82.5% of Patients)</h2>
-    <span class="header-tag">Design Decision</span>
-  </div>
-  <div class="slide-body">
-    <div class="card" style="flex:0 0 auto;">
-      <p style="font-size:14px;">Patients without a CXR report receive a <strong>zero vector (1536 × 0.0)</strong> for the text branch. Crucially, there is <strong>no explicit <code>has_cxr</code> flag</strong> — an earlier version tested one and performed worse.</p>
-    </div>
-    <div class="card-grid card-grid-2" style="flex:1; gap:16px;">
-      <div class="card red">
-        <h4>Why the flag hurt the model</h4>
-        <p style="font-size:13.5px; line-height:1.6;">With an explicit flag the model learns a shortcut: when <code>has_cxr=0</code> it ignores the text branch entirely. Since 82.5% of training cases have no CXR, this signal dominates training — the projection layer barely receives gradients for the 17.5% with real embeddings, so the text branch is poorly trained and contributes nothing.</p>
-      </div>
-      <div class="card green">
-        <h4>Why no flag works better</h4>
-        <p style="font-size:13.5px; line-height:1.6;">Without a flag, the model must implicitly learn that a zero vector is uninformative. The gradient for a zero input is structurally small (<code>Linear(0) = 0</code>), so the projection layer focuses its learning capacity on the 17.5% of patients with genuine embeddings.</p>
-      </div>
-    </div>
-    <div style="flex:0 0 auto; background:var(--uni-blue); color:white; text-align:center; padding:16px; border-radius:8px;">
-      <div style="font-size:18px; font-weight:700;">Implicit handling beats an explicit flag</div>
-      <div style="font-size:14px; opacity:0.85; margin-top:5px;">Zero vectors let the 17.5% of patients with real reports drive the text branch — no shortcut, no dilution.</div>
-    </div>
-  </div>
-  <div class="slide-footer">
-    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
-    <span>Ablation: explicit has_cxr flag removed — degraded performance</span>
   </div>
 </div>
 
@@ -1475,9 +1443,9 @@
         <table class="data-table" style="font-size:13px;">
           <thead><tr><th>Metric</th><th>Baseline GRU</th><th>PRD-Net</th></tr></thead>
           <tbody>
-            <tr><td>F1 Score</td><td>0.625</td><td>0.624</td></tr>
-            <tr><td>AUROC</td><td>0.845</td><td>0.839</td></tr>
-            <tr><td>AUPRC</td><td>0.638</td><td>0.627</td></tr>
+            <tr><td>F1 Score</td><td>0.6252</td><td>0.624</td></tr>
+            <tr><td>AUROC</td><td>0.8451</td><td>0.839</td></tr>
+            <tr><td>AUPRC</td><td>0.6375</td><td>0.627</td></tr>
           </tbody>
         </table>
       </div>

@@ -13,7 +13,9 @@ Why re-aggregate from timeseries.parquet instead of reusing the X_* columns?
 Per time-series feature we compute AGG_STATS = mean / last / min / max / slope
 over [0, WINDOW_HOURS). 'slope' is the OLS slope of the feature vs hour using the
 non-missing samples. The continuous static feature `age` is appended.
-=> F = 12 TS features x 5 stats + age = 61 difference features.
+=> F = 12 TS features x 5 stats + age = 61 difference features, + 18 CXR-derived
+features (01d_extract_radiology_features.py output) if USE_CXR_FEATURES = 79.
+Stays without a usable CXR report get 0 for every CXR feature, incl. has_cxr_report.
 
 The hard-filter one-hots (icd_*, icu_*, adm_*) and other binary indicators are
 NOT difference features (see config_fd.py) — they are used for filtering only.
@@ -23,7 +25,8 @@ Outputs (window-tagged so 48h/24h coexist):
   fd_feature_matrix_{split}_scaled_{w}.parquet  z-scored with TRAIN stats (model)
   fd_scaler_{w}.pkl                             scaler + train medians + names
 
-Run AFTER: upstream preprocessing (X_*/y_*/timeseries.parquet exist).
+Run AFTER: upstream preprocessing (X_*/y_*/timeseries.parquet exist),
+           01d_extract_radiology_features.py (if USE_CXR_FEATURES).
 """
 
 import pickle
@@ -113,8 +116,25 @@ def _aggregate(arr: np.ndarray) -> dict[str, np.ndarray]:
     return {"mean": mean_, "last": last_, "min": min_, "max": max_, "slope": slope_}
 
 
+def _attach_cxr_features(mat: pd.DataFrame, cxr_df: pd.DataFrame | None) -> pd.DataFrame:
+    """Left-join CXR-derived features by stay_id; missing stays -> 0 (no report).
+
+    has_cxr_report is derived from row presence in cxr_df, not read from it, so
+    it stays 1 even if every individual flag for that report happens to be 0.
+    """
+    if cxr_df is None:
+        return mat
+    aligned = cxr_df.reindex(mat.index)
+    present = aligned.notna().any(axis=1)
+    flag_cols = [c for c in C.CXR_FEATURES if c != "has_cxr_report"]
+    for c in flag_cols:
+        mat[c] = aligned[c].fillna(0.0).astype(np.float32)
+    mat["has_cxr_report"] = present.astype(np.float32)
+    return mat
+
+
 def build_raw_matrix(ts: pd.DataFrame, X_split: pd.DataFrame,
-                     window_hours: int) -> pd.DataFrame:
+                     window_hours: int, cxr_df: pd.DataFrame | None = None) -> pd.DataFrame:
     """Assemble the raw-unit feature matrix for one split, in X_split row order."""
     stay_ids = X_split["stay_id"].to_numpy()
     arr   = _build_window_array(ts, stay_ids, window_hours)
@@ -129,6 +149,8 @@ def build_raw_matrix(ts: pd.DataFrame, X_split: pd.DataFrame,
 
     mat = pd.DataFrame(cols, index=stay_ids)
     mat.index.name = "stay_id"
+    if C.USE_CXR_FEATURES:
+        mat = _attach_cxr_features(mat, cxr_df)
 
     # Critical: column order must equal feature_names(); row order must equal X_split.
     mat = mat[C.feature_names()]
@@ -152,8 +174,15 @@ if __name__ == "__main__":
         "test":  pd.read_parquet(OUTPUT_DIR / "X_test.parquet"),
     }
 
+    cxr_df = None
+    if C.USE_CXR_FEATURES:
+        print("Loading CXR-derived features...")
+        cxr_df = (pd.read_csv(C.CXR_FEATURE_PATH)
+                  .set_index("stay_id")[[c for c in C.CXR_FEATURES if c != "has_cxr_report"]])
+        print(f"  {len(cxr_df):,} stays with a usable CXR report")
+
     print("Aggregating raw matrices...")
-    raw = {s: build_raw_matrix(ts, df, W) for s, df in splits.items()}
+    raw = {s: build_raw_matrix(ts, df, W, cxr_df) for s, df in splits.items()}
     for s, m in raw.items():
         n_nan = int(m.isna().sum().sum())
         print(f"  {s:<5}: {m.shape[0]:,} x {m.shape[1]}  (missing cells before impute: {n_nan:,})")

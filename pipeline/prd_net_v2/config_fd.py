@@ -40,6 +40,24 @@ TS_FEATURES = [
 # indicators have no "X SD above/below the prototype" reading.
 STATIC_FEATURES = ["age"]
 
+# ── Optional CXR-derived static features ──────────────────────────────────────
+# Interpretable per-report flags from 01d_extract_radiology_features.py
+# (pathology/severity/progression/device mentions + report complexity), keyed
+# by stay_id. Unlike icd_*/icu_*/adm_* these are NOT part of the hard filter,
+# so a peer-group delta carries real signal (e.g. "pneumonia mentioned, vs.
+# 15% of long-stay peers"). has_cxr_report disambiguates "no report" from
+# "report present, nothing found" — both default to 0 for missing stays.
+USE_CXR_FEATURES = True
+CXR_FEATURE_PATH = OUTPUT_DIR / "cxr_structured_features.csv"
+CXR_FEATURES = [
+    "has_cxr_report",
+    "pneumonia", "pleural_effusion", "pneumothorax", "edema",
+    "atelectasis", "opacity", "cardiomegaly",
+    "severity_score", "worsening", "improved", "stable",
+    "ventilator", "central_line", "chest_tube",
+    "report_length", "sentence_count", "abnormality_count",
+]
+
 # ── Peer retrieval (consistent with the existing track) ───────────────────────
 K_PEERS       = 20
 AGE_TOLERANCE = 5
@@ -91,18 +109,22 @@ EXPORT_DIR = FD_DIR / "exports"
 
 # ── Resolved difference-feature list ──────────────────────────────────────────
 def feature_names() -> list[str]:
-    """Ordered list of the F difference features: TS feature x stat, then statics.
+    """Ordered list of the F difference features: TS feature x stat, then statics,
+    then (optionally) the CXR-derived features.
 
-    Order is (TS_FEATURES outer, AGG_STATS inner) followed by STATIC_FEATURES,
-    e.g. ['heart_rate_mean', 'heart_rate_last', ..., 'urine_output_slope', 'age'].
+    Order is (TS_FEATURES outer, AGG_STATS inner), STATIC_FEATURES, CXR_FEATURES,
+    e.g. ['heart_rate_mean', ..., 'urine_output_slope', 'age', 'has_cxr_report', ...].
     """
     names = [f"{feat}_{stat}" for feat in TS_FEATURES for stat in AGG_STATS]
     names += list(STATIC_FEATURES)
+    if USE_CXR_FEATURES:
+        names += list(CXR_FEATURES)
     return names
 
 
 def n_features() -> int:
-    """F = number of difference features (12 TS x 5 stats + age = 61)."""
+    """F = number of difference features (12 TS x 5 stats + age = 61,
+    + 18 CXR-derived features if USE_CXR_FEATURES = 79)."""
     return len(feature_names())
 
 

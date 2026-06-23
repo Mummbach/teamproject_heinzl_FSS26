@@ -98,6 +98,29 @@ if __name__ == "__main__":
     for side, sub in glob.groupby("side"):
         print(f"  {side:<6}: {sub['mean_abs_shap'].sum():.4f}")
 
+    # ── DISTANCE VIEW vs DIFFERENCE VIEW (Task 4) ─────────────────────────────
+    # Distance view  = ONE scalar per prototype: ||Δpos||, ||Δneg|| over all F
+    #                  features (the prd_net/05 sanity metric). Tells you which
+    #                  prototype is closer overall, but NOT which feature caused it.
+    # Difference view= the signed per-feature vector w_i·Δ_i whose sum is the
+    #                  logit, so every decision is attributable to named features.
+    dp = te["X"] - te["pos_proto"]
+    dn = te["X"] - te["neg_proto"]
+    norm_pos = np.linalg.norm(dp, axis=1)        # ||Δpos|| per patient (scaled units)
+    norm_neg = np.linalg.norm(dn, axis=1)        # ||Δneg||
+    dist_pred = (norm_pos < norm_neg).astype(int)   # closer to long-stay proto -> long
+    from sklearn.metrics import f1_score
+    dist_f1 = f1_score(te["labels"], dist_pred, zero_division=0)
+    diff_f1 = f1_score(te["labels"], preds, zero_division=0)
+    agree = float((dist_pred == preds).mean())
+    print("\nDistance view vs. difference view (Task 4):")
+    print("  Distance  = single scalar per prototype (||Δpos|| vs ||Δneg||); no per-feature reason.")
+    print("  Difference= signed per-feature vector w_i·Δ_i (sum = logit); fully attributable.")
+    print(f"  Distance-only verdict (||Δpos|| < ||Δneg||):  test F1 = {dist_f1:.4f}")
+    print(f"  Difference model (learned weights):           test F1 = {diff_f1:.4f}")
+    print(f"  The two verdicts agree on {agree*100:.1f}% of test patients, but only the")
+    print("  difference view names WHICH features drove each individual decision.")
+
     # ── PER-PATIENT raw-unit rendering helper ─────────────────────────────────
     def proto_word(side):  # Δpos -> long-stay prototype, Δneg -> short-stay
         return "long-stay" if side == "Δpos" else "short-stay"
@@ -129,6 +152,9 @@ if __name__ == "__main__":
         print(f"\n  stay_id {int(te['stay_ids'][i])}  prob={probs[i]:.3f}  "
               f"pred={'long' if preds[i] else 'short'}  net_shap={net:+.3f}  "
               f"[{'consistent' if ok else 'INCONSISTENT'}]")
+        print(f"      distance view: ‖Δpos‖={norm_pos[i]:.2f}  ‖Δneg‖={norm_neg[i]:.2f}  "
+              f"(closer to {'long' if norm_pos[i] < norm_neg[i] else 'short'}-stay proto)")
+        print("      difference view (top per-feature contributions):")
         for line in render(i):
             print(line)
     print(f"\n  {n_consistent}/5 net-direction consistent with the long-stay label.")

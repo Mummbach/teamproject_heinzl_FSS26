@@ -58,7 +58,7 @@ def build_train_prototypes_from_cache(
     """
     F = M_train.shape[1]
     kept_ids, kept_lab = [], []
-    pos_p, neg_p, pos_ids, neg_ids = [], [], [], []
+    pos_p, neg_p, pos_ids, neg_ids, all_ids = [], [], [], [], []
 
     for row, sid in enumerate(tqdm(train_ids, desc="train protos", leave=False)):
         pos_idx, neg_idx = peer_cache[int(sid)]
@@ -66,14 +66,21 @@ def build_train_prototypes_from_cache(
             continue                                       # skip empty-side patient
 
         pos_vec, neg_vec = M_train[pos_idx], M_train[neg_idx]
+        tgt = emb_cache[int(sid)]
 
         w_pos = w_neg = None
         if C.USE_PROTOTYPE_WEIGHTING:
-            tgt = emb_cache[int(sid)]
             pe  = np.stack([emb_cache[int(train_ids[i])] for i in pos_idx])
             ne  = np.stack([emb_cache[int(train_ids[i])] for i in neg_idx])
             w_pos = 1.0 / (np.linalg.norm(pe - tgt, axis=1) + EPS)
             w_neg = 1.0 / (np.linalg.norm(ne - tgt, axis=1) + EPS)
+
+        # Class-independent nearest peers (overall most-similar patients), ranked
+        # by embedding distance over the union of the cached pos/neg peers.
+        union = list(pos_idx) + list(neg_idx)
+        ud = np.linalg.norm(
+            np.stack([emb_cache[int(train_ids[i])] for i in union]) - tgt, axis=1)
+        all_ids.append([int(train_ids[union[j]]) for j in np.argsort(ud)[:C.K_PEERS]])
 
         kept_ids.append(int(sid)); kept_lab.append(int(train_labels[row]))
         pos_p.append(_mean(pos_vec, w_pos)); neg_p.append(_mean(neg_vec, w_neg))
@@ -92,6 +99,11 @@ def build_train_prototypes_from_cache(
         "neg_proto": np.stack(neg_p).astype(np.float32),
         "pos_peer_ids": pos_ids,
         "neg_peer_ids": neg_ids,
+        "all_peer_ids": all_ids,
+        "n_pos_filtered": [len(p) for p in pos_ids],   # cache peers are always filtered
+        "n_neg_filtered": [len(n) for n in neg_ids],
+        "pos_fallback": [False] * len(pos_ids),
+        "neg_fallback": [False] * len(neg_ids),
         "feature_names": C.feature_names(),
         "window_hours": C.WINDOW_HOURS,
     }
@@ -127,7 +139,8 @@ def build_prototypes_filtered(
     pos_global = np.where(train_labels == 1)[0]
     neg_global = np.where(train_labels == 0)[0]
 
-    pos_p, neg_p, pos_ids, neg_ids = [], [], [], []
+    pos_p, neg_p, pos_ids, neg_ids, all_ids = [], [], [], [], []
+    n_pos_f, n_neg_f, pos_fb, neg_fb = [], [], [], []   # peer-support diagnostics
 
     def _knn(cands, target_repr):
         d = np.linalg.norm(train_repr[cands] - target_repr, axis=1)
@@ -154,12 +167,22 @@ def build_prototypes_filtered(
         cands = np.where(mask)[0]
         pos_c = cands[train_labels[cands] == 1]
         neg_c = cands[train_labels[cands] == 0]
+        # Record filtered support BEFORE any fallback (used by the dashboard to
+        # flag low-support / extrapolated predictions).
+        n_pos_f.append(int(len(pos_c))); n_neg_f.append(int(len(neg_c)))
+        pos_fb.append(len(pos_c) == 0);  neg_fb.append(len(neg_c) == 0)
         if len(pos_c) == 0: pos_c = pos_global
         if len(neg_c) == 0: neg_c = neg_global
 
         pv, pid = _knn(pos_c, target_repr)
         nv, nid = _knn(neg_c, target_repr)
         pos_p.append(pv); neg_p.append(nv); pos_ids.append(pid); neg_ids.append(nid)
+
+        # Class-independent nearest peers (overall most-similar) within the same
+        # hard+age filter; falls back to the full train pool if nothing matched.
+        ranked = cands if len(cands) > 0 else np.arange(len(X_train_df))
+        d_all = np.linalg.norm(train_repr[ranked] - target_repr, axis=1)
+        all_ids.append([int(all_train_ids[i]) for i in ranked[np.argsort(d_all)[:C.K_PEERS]]])
 
     return {
         "stay_ids": np.asarray(query_ids),
@@ -169,6 +192,11 @@ def build_prototypes_filtered(
         "neg_proto": np.stack(neg_p).astype(np.float32),
         "pos_peer_ids": pos_ids,
         "neg_peer_ids": neg_ids,
+        "all_peer_ids": all_ids,
+        "n_pos_filtered": n_pos_f,
+        "n_neg_filtered": n_neg_f,
+        "pos_fallback": pos_fb,
+        "neg_fallback": neg_fb,
         "feature_names": C.feature_names(),
         "window_hours": C.WINDOW_HOURS,
     }

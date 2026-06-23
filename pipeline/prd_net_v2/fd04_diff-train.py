@@ -142,9 +142,13 @@ if __name__ == "__main__":
         print(f"  {k:<10}: {v:.4f}")
 
     # ── sklearn LogisticRegression reference (same diff vectors) ──────────────
-    lr = build_logreg().fit(Xtr, ytr.astype(int))
-    lr_prob = lr.predict_proba(Xte)[:, 1]
-    lr_vprob = lr.predict_proba(Xva)[:, 1]
+    # np.errstate guards a spurious NumPy 1.26 matmul FP-warning ("divide by zero
+    # encountered in matmul") that fires on some CPUs even for a plain `A @ w`.
+    # It is cosmetic: the fit converges and matches the torch model. Use float64.
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+        lr = build_logreg().fit(Xtr.astype(np.float64), ytr.astype(int))
+        lr_prob  = lr.predict_proba(Xte.astype(np.float64))[:, 1]
+        lr_vprob = lr.predict_proba(Xva.astype(np.float64))[:, 1]
     lr_thr, _ = find_best_threshold(lr_vprob, yva)
     lr_metrics = evaluate(lr_prob, yte, lr_thr)
     print("\nTest metrics (sklearn LogisticRegression reference):")

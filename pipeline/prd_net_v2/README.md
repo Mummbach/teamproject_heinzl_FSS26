@@ -99,7 +99,8 @@ python3 fd01_feature-matrix.py      # feature matrices + scaler   (output/fd_fea
 python3 fd02_feature-prototypes.py  # feature-space prototypes     (output/fd_prototypes_*)
 python3 fd04_diff-train.py          # train + threshold + metrics  (checkpoints/, output/fd_metrics_*)
 python3 fd05_diff-explain.py        # global + per-patient SHAP explanations (stdout)
-python3 fd06_dashboard-export.py    # per-patient records          (exports/fd_explanations_test_*)
+python3 fd06_dashboard-export.py    # per-patient records          (exports/fd_explanations_test_*, fd_global_*)
+python3 fd07_report.py              # standalone HTML dashboard     (exports/fd_dashboard_*.html)
 ```
 
 `fd03_diff-model.py` is a module (model + diff assembly); run it directly only
@@ -119,4 +120,24 @@ window-tagged, so the 24h run does not overwrite the 48h run.
 | `fd03_diff-model.py` | diff assembly, `LinearDiffModel` (+ MLP), sklearn LogisticRegression reference |
 | `fd04_diff-train.py` | train, val-F1 early stop, threshold tune, test metrics (incl. AUPRC) |
 | `fd05_diff-explain.py` | `w·delta` == SHAP check; global + per-patient raw-unit explanations |
-| `fd06_dashboard-export.py` | per-patient explanation records (JSON + flat parquet) |
+| `fd06_dashboard-export.py` | per-patient records + global summary (JSON + flat parquet) |
+| `fd07_report.py` | standalone interactive Plotly HTML dashboard (curated cases, no install) |
+| `fd07_dashboard.py` | full Streamlit dashboard over all patients (needs `pip install streamlit`) |
+
+## Dashboard
+
+Two visualizations on top of the fd06 exports (data-only; they load no model):
+
+- **`fd07_report.py`** — a self-contained `exports/fd_dashboard_{w}.html` that opens
+  in any browser (uses plotly, already installed; no server). It shows the global
+  overview (metrics, global feature importance, distance-vs-difference) and a
+  dropdown over a curated set of illustrative patients with: prediction vs. truth,
+  per-feature contributions to the logit (red → long-stay, blue → short-stay), the
+  patient's position *between* the two prototypes per feature, and the 3 most-similar
+  / 3 long-stay / 3 short-stay peers with their outcomes. For **misclassified**
+  patients it also shows a heuristic "why this prediction is probably wrong" box
+  (empty-filter fallback, low peer support, single-feature dominance, borderline
+  probability, or near-tie), plus the per-class peer-support count.
+- **`fd07_dashboard.py`** — the full interactive Streamlit app over all ~4 600 test
+  patients (filters by correct/wrong/false-neg/false-pos, patient picker). Same
+  components as the static report. Run with `streamlit run fd07_dashboard.py`.

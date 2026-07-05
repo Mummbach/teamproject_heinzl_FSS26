@@ -42,11 +42,16 @@ STATIC_FEATURES = ["age"]
 
 # ── Optional CXR-derived static features ──────────────────────────────────────
 # Interpretable per-report flags from 01d_extract_radiology_features.py
-# (pathology/severity/progression/device mentions + report complexity), keyed
-# by stay_id. Unlike icd_*/icu_*/adm_* these are NOT part of the hard filter,
-# so a peer-group delta carries real signal (e.g. "pneumonia mentioned, vs.
-# 15% of long-stay peers"). has_cxr_report disambiguates "no report" from
-# "report present, nothing found" — both default to 0 for missing stays.
+# (pathology/severity/progression/device mentions), keyed by stay_id. Unlike
+# icd_*/icu_*/adm_* these are NOT part of the hard filter, so a peer-group
+# delta carries real signal (e.g. "pneumonia mentioned, vs. 15% of long-stay
+# peers"). has_cxr_report disambiguates "no report" from "report present,
+# nothing found" — both default to 0 for missing stays.
+#
+# report_length/sentence_count deliberately excluded: they measure report
+# verbosity/documentation style, not a clinical finding, yet outranked real
+# pathology flags (severity_score, abnormality_count) in feature importance —
+# a confound the "why" explanation view should not surface to a clinician.
 USE_CXR_FEATURES = True
 CXR_FEATURE_PATH = OUTPUT_DIR / "cxr_structured_features.csv"
 CXR_FEATURES = [
@@ -55,7 +60,7 @@ CXR_FEATURES = [
     "atelectasis", "opacity", "cardiomegaly",
     "severity_score", "worsening", "improved", "stable",
     "ventilator", "central_line", "chest_tube",
-    "report_length", "sentence_count", "abnormality_count",
+    "abnormality_count",
 ]
 
 # ── Peer retrieval (consistent with the existing track) ───────────────────────

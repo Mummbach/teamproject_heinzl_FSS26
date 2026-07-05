@@ -69,6 +69,7 @@ if __name__ == "__main__":
     with open(C.scaler_bundle_path(), "rb") as f:
         sb = pickle.load(f)
     scaler = sb["scaler"]; feats = C.feature_names(); F = len(feats)
+    CXR_SET = set(C.CXR_FEATURES)   # kept out of top_contributions; surfaced separately (cxr_support)
 
     # Raw-unit patient values and raw-unit prototypes (invert the scaler).
     raw_te = (pd.read_parquet(C.feature_matrix_path("test", scaled=False))
@@ -84,6 +85,28 @@ if __name__ == "__main__":
         order = np.argsort(np.abs(scaled_delta_row))[::-1][:TOP_K]
         return [{"feature": feats[j], "raw_delta": round(float(delta_raw_row[j]), 3),
                  "sd_delta": round(float(scaled_delta_row[j]), 3)} for j in order]
+
+    def cxr_support(i, pred):
+        """CXR-derived findings that (a) actually fired for this patient and
+        (b) push in the same direction as the predicted class. Kept separate
+        from top_contributions: has_cxr_report is a coverage flag, not a
+        finding, and CXR only covers ~2% of patients, so it reads as
+        corroborating anamnesis rather than a primary driver."""
+        has_report = "has_cxr_report" in feats and patient_raw[i, feats.index("has_cxr_report")] > 0
+        findings = []
+        if has_report:
+            for j in range(contribs.shape[1]):
+                side, feat = labels_in[j].split(":")
+                if feat not in CXR_SET or feat == "has_cxr_report":
+                    continue
+                fi = feats.index(feat)
+                c = float(contribs[i, j])
+                same_direction = (c > 0) if pred == 1 else (c < 0)
+                if patient_raw[i, fi] > 0 and same_direction:
+                    findings.append({"feature": feat, "raw_value": round(float(patient_raw[i, fi]), 3),
+                                     "contribution": round(c, 4)})
+            findings.sort(key=lambda d: -abs(d["contribution"]))
+        return {"has_report": bool(has_report), "findings": findings}
 
     # Peers are training patients -> attach their true outcome so the dashboard
     # can confirm "here are 3 similar long-stay patients".
@@ -146,10 +169,13 @@ if __name__ == "__main__":
     records = []
     for i, sid in enumerate(te["stay_ids"]):
         support, wrong_reasons = diagnose(i)
-        c_order = np.argsort(np.abs(contribs[i]))[::-1][:TOP_K]
+        pred = int(preds[i])
+        c_order = np.argsort(np.abs(contribs[i]))[::-1]
         top_contrib = []
         for j in c_order:
             side, feat = labels_in[j].split(":")
+            if feat in CXR_SET:      # surfaced separately via cxr_support, not here
+                continue
             fi = feats.index(feat)
             top_contrib.append({
                 "input": labels_in[j], "feature": feat,
@@ -157,10 +183,12 @@ if __name__ == "__main__":
                 "raw_delta": round(float(Xte[i, j] * scaler.scale_[fi]), 3),
                 "contribution": round(float(contribs[i, j]), 4),
             })
+            if len(top_contrib) == TOP_K:
+                break
         records.append({
             "stay_id": int(sid),
             "prob": round(float(probs[i]), 4),
-            "pred_label": int(preds[i]),
+            "pred_label": pred,
             "true_label": int(te["labels"][i]),
             "top_similar_peers": peer_objs(te["all_peer_ids"][i]),
             "top_long_peers":  peer_objs(te["pos_peer_ids"][i]),
@@ -171,6 +199,7 @@ if __name__ == "__main__":
             "largest_dev_vs_long":  top_dev(delta_pos_raw[i], te["X"][i] - te["pos_proto"][i]),
             "largest_dev_vs_short": top_dev(delta_neg_raw[i], te["X"][i] - te["neg_proto"][i]),
             "top_contributions": top_contrib,
+            "cxr_support": cxr_support(i, pred),
             "support": support,
             "wrong_reasons": wrong_reasons,
         })
@@ -188,6 +217,7 @@ if __name__ == "__main__":
         "top_long_peers": json.dumps(r["top_long_peers"]),
         "top_short_peers": json.dumps(r["top_short_peers"]),
         "top_contributions": json.dumps(r["top_contributions"]),
+        "cxr_support": json.dumps(r["cxr_support"]),
         "largest_dev_vs_long": json.dumps(r["largest_dev_vs_long"]),
         "largest_dev_vs_short": json.dumps(r["largest_dev_vs_short"]),
         "support": json.dumps(r["support"]),

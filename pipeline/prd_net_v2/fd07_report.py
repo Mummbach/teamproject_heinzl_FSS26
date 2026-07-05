@@ -31,6 +31,23 @@ import config_fd as C
 
 LONG_C, SHORT_C, PAT_C = "#d62728", "#1f77b4", "#111111"   # red / blue / black
 
+# Display-only relabeling for feature names that read as misleading/unclear to
+# a clinician. Underlying column names (config_fd.CXR_FEATURES / feature_matrix
+# columns) are left unchanged so exports, code, and cached parquet files don't
+# need to move — only the label shown in charts/tables here is remapped.
+#   "ventilator"   — column actually flags ET-tube/intubation mentions
+#                    (DEVICE_TERMS in 01d_extract_radiology_features.py), not
+#                    the literal word "ventilator".
+#   "central_line" — column name is already accurate ICU terminology.
+FEATURE_LABELS = {
+    "ventilator": "Intubated (ET tube mentioned)",
+    "central_line": "Central line",
+}
+
+
+def feat_label(feature):
+    return FEATURE_LABELS.get(feature, feature)
+
 
 def load(window):
     base = C.EXPORT_DIR / f"fd_explanations_test_{window}h.json"
@@ -56,7 +73,7 @@ def curated(records, n_each=4):
 def fig_importance(glob, top=15):
     items = glob["feature_importance"][:top][::-1]
     fig = go.Figure(go.Bar(
-        x=[d["importance"] for d in items], y=[d["feature"] for d in items],
+        x=[d["importance"] for d in items], y=[feat_label(d["feature"]) for d in items],
         orientation="h", marker_color="#555"))
     fig.update_layout(
         title="Global feature importance (mean |contribution|, Δpos+Δneg summed)",
@@ -68,7 +85,7 @@ def fig_importance(glob, top=15):
 def fig_contributions(rec):
     tc = rec["top_contributions"][::-1]
     xs = [d["contribution"] for d in tc]
-    ys = [f"{d['feature']}  (vs {d['prototype']})" for d in tc]
+    ys = [f"{feat_label(d['feature'])}  (vs {d['prototype']})" for d in tc]
     colors = [LONG_C if x > 0 else SHORT_C for x in xs]
     text = [f"Δ={d['raw_delta']:+g}" for d in tc]
     fig = go.Figure(go.Bar(x=xs, y=ys, orientation="h", marker_color=colors,
@@ -92,7 +109,7 @@ def fig_prototype_position(rec):
         pos = (pa - sh) / denom
         short_x.append(0.0); long_x.append(1.0)
         pat_x.append(min(1.5, max(-0.5, pos)))   # clamp so outliers don't squash the 0–1 region
-        rows.append(f)
+        rows.append(feat_label(f))
     fig = go.Figure()
     for x, name, col, sym in [(short_x, "Short-stay prototype", SHORT_C, "circle"),
                               (long_x, "Long-stay prototype", LONG_C, "circle"),
@@ -135,6 +152,31 @@ def support_html(rec):
             f"{s['n_long_filtered']} long-stay{lf} · {s['n_short_filtered']} short-stay{sf}</p>")
 
 
+def raw_values_html(rec):
+    """Patient vs. prototypes in raw clinical units (readable without knowing what a logit is)."""
+    feats = list(dict.fromkeys(d["feature"] for d in rec["top_contributions"]))[:8]
+    rows = "".join(
+        f"<tr><td>{feat_label(f)}</td><td>{rec['patient'][f]}</td>"
+        f"<td>{rec['long_prototype'][f]}</td><td>{rec['short_prototype'][f]}</td></tr>"
+        for f in feats)
+    return ("<div class='rawvals'><b>Patient vs. prototypes (raw clinical values)</b>"
+            "<table><tr><th>Feature</th><th>Patient</th><th>Long-stay proto</th>"
+            f"<th>Short-stay proto</th></tr>{rows}</table></div>")
+
+
+def cxr_support_html(rec):
+    """Corroborating 'anamnesis' line from the CXR report — kept separate from
+    top_contributions since CXR only covers ~2% of patients and a coverage
+    flag (has_cxr_report) isn't itself a finding a clinician can read."""
+    cs = rec["cxr_support"]
+    if not cs["has_report"]:
+        return ""
+    if not cs["findings"]:
+        return "<p class='cxr'>Chest X-ray report on file: no notable findings.</p>"
+    names = ", ".join(feat_label(f["feature"]) for f in cs["findings"])
+    return f"<p class='cxr'>Chest X-ray report also supports this: {names}.</p>"
+
+
 def reasons_html(rec):
     if not rec["wrong_reasons"]:
         return ""
@@ -153,7 +195,8 @@ def patient_block(rec, idx):
                    for f in (fig_contributions(rec), fig_prototype_position(rec)))
     display = "block" if idx == 0 else "none"
     return (f"<div class='patient' id='pat{idx}' style='display:{display}'>"
-            f"{header}{reasons_html(rec)}{support_html(rec)}{figs}{peers_html(rec)}</div>")
+            f"{header}{reasons_html(rec)}{support_html(rec)}{raw_values_html(rec)}"
+            f"{figs}{cxr_support_html(rec)}{peers_html(rec)}</div>")
 
 
 def build(window):
@@ -182,12 +225,15 @@ def build(window):
 <style>
  body{{font-family:system-ui,Arial,sans-serif;margin:24px;color:#222;max-width:1000px}}
  h1{{font-size:22px}} h2{{font-size:17px;margin-top:28px;border-bottom:1px solid #ddd}}
- table.m,.peers table{{border-collapse:collapse}} .m td,.m th,.peers td,.peers th{{border:1px solid #ccc;padding:3px 10px;font-size:13px}}
+ table.m,.peers table,.rawvals table{{border-collapse:collapse}}
+ .m td,.m th,.peers td,.peers th,.rawvals td,.rawvals th{{border:1px solid #ccc;padding:3px 10px;font-size:13px}}
+ .rawvals{{margin:8px 0}}
  .phead{{background:#f4f4f4;padding:8px 12px;border-radius:6px;margin:8px 0;font-size:14px}}
  .peerwrap{{display:flex;gap:24px;flex-wrap:wrap;margin:6px 0 30px}}
  .note{{background:#fff7e6;border-left:3px solid #f0a020;padding:8px 12px;font-size:14px}}
  .wrong{{background:#fdecea;border-left:3px solid #d62728;padding:8px 12px;font-size:14px;margin:8px 0}}
  .wrong ul{{margin:6px 0 0 18px}} .support{{color:#555;font-size:13px;margin:4px 0}}
+ .cxr{{background:#eef7f0;border-left:3px solid #2e8b57;padding:8px 12px;font-size:14px;margin:8px 0}}
  select{{font-size:14px;padding:4px}}
 </style></head><body>
 <h1>PRD-Net v2 — Feature Difference Dashboard ({window}h)</h1>

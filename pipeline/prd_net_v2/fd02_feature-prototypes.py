@@ -49,8 +49,36 @@ def _mean(vectors: np.ndarray, weights: np.ndarray | None) -> np.ndarray:
     return (vectors * w[:, None]).sum(axis=0)
 
 
+def _condition_cxr(pos_proto, neg_proto, own_vec, has_report, cxr_idx, cxr_pos_ref, cxr_neg_ref):
+    """Override the CXR-content columns (pneumonia, ventilator, ... — NOT
+    has_cxr_report itself) of a patient's prototypes.
+
+    has_cxr_report covers only ~2% of patients, so the plain peer/population
+    mean on these columns is dominated by patients with no report at all
+    (defaulted to 0, indistinguishable from "report present, nothing found").
+    That inflates the delta for the rare patient who does have a report,
+    without it reflecting an actual report-vs-report comparison. Fix:
+      - patient HAS a report: compare against the class-conditional mean
+        among OTHER report-holding training patients (a real comparison).
+      - patient has NO report: copy the patient's own (defaulted) values
+        into the prototype so the delta is exactly 0 — there is nothing to
+        compare, and treating "no data" as "no finding" would be misleading.
+    """
+    if cxr_idx is None:
+        return pos_proto, neg_proto
+    pos_proto = pos_proto.copy(); neg_proto = neg_proto.copy()
+    if has_report:
+        pos_proto[cxr_idx] = cxr_pos_ref
+        neg_proto[cxr_idx] = cxr_neg_ref
+    else:
+        pos_proto[cxr_idx] = own_vec[cxr_idx]
+        neg_proto[cxr_idx] = own_vec[cxr_idx]
+    return pos_proto, neg_proto
+
+
 def build_train_prototypes_from_cache(
     train_ids, train_labels, M_train, emb_cache, peer_cache,
+    cxr_idx=None, cxr_pos_ref=None, cxr_neg_ref=None, has_report=None,
 ) -> dict:
     """Train prototypes via the cached embedding-space peers (D1 default).
 
@@ -82,8 +110,12 @@ def build_train_prototypes_from_cache(
             np.stack([emb_cache[int(train_ids[i])] for i in union]) - tgt, axis=1)
         all_ids.append([int(train_ids[union[j]]) for j in np.argsort(ud)[:C.K_PEERS]])
 
+        pp, npv = _mean(pos_vec, w_pos), _mean(neg_vec, w_neg)
+        pp, npv = _condition_cxr(pp, npv, M_train[row], has_report[row] if has_report is not None else False,
+                                 cxr_idx, cxr_pos_ref, cxr_neg_ref)
+
         kept_ids.append(int(sid)); kept_lab.append(int(train_labels[row]))
-        pos_p.append(_mean(pos_vec, w_pos)); neg_p.append(_mean(neg_vec, w_neg))
+        pos_p.append(pp); neg_p.append(npv)
         pos_ids.append([int(train_ids[i]) for i in pos_idx])
         neg_ids.append([int(train_ids[i]) for i in neg_idx])
 
@@ -113,6 +145,7 @@ def build_prototypes_filtered(
     query_df, query_ids, query_labels, M_query,
     X_train_df, all_train_ids, train_labels, M_train, emb_cache,
     space, exclude_self=False,
+    cxr_idx=None, cxr_pos_ref=None, cxr_neg_ref=None, has_report=None,
 ) -> dict:
     """Filtered K-NN prototypes for a query split (mirrors build_filtered_prototypes).
 
@@ -176,6 +209,8 @@ def build_prototypes_filtered(
 
         pv, pid = _knn(pos_c, target_repr)
         nv, nid = _knn(neg_c, target_repr)
+        pv, nv = _condition_cxr(pv, nv, M_query[qr], has_report[qr] if has_report is not None else False,
+                                cxr_idx, cxr_pos_ref, cxr_neg_ref)
         pos_p.append(pv); neg_p.append(nv); pos_ids.append(pid); neg_ids.append(nid)
 
         # Class-independent nearest peers (overall most-similar) within the same
@@ -233,16 +268,43 @@ if __name__ == "__main__":
     train_labels  = ydf["train"].set_index("stay_id").loc[all_train_ids, "los_gt7"].values
     M_train = M["train"].values.astype(np.float32)
 
+    # ── CXR content-vs-coverage conditioning (see _condition_cxr) ─────────────
+    # has_cxr_report covers only ~2% of patients; compute a fixed class-conditional
+    # reference for the OTHER CXR columns from training report-holders, and a
+    # per-split has-report mask so each query patient gets the right treatment.
+    cxr_idx = cxr_pos_ref = cxr_neg_ref = None
+    has_report = {"train": None, "val": None, "test": None}
+    feats_all = C.feature_names()
+    if C.USE_CXR_FEATURES and "has_cxr_report" in feats_all:
+        content_cols = [f for f in C.CXR_FEATURES if f != "has_cxr_report"]
+        cxr_idx = np.array([feats_all.index(f) for f in content_cols])
+
+        def raw_has_report(split, ids):
+            col = pd.read_parquet(C.feature_matrix_path(split, scaled=False),
+                                  columns=["stay_id", "has_cxr_report"]).set_index("stay_id")
+            return col.loc[ids, "has_cxr_report"].values > 0
+
+        train_has_report = raw_has_report("train", all_train_ids)
+        cxr_pos_ref = M_train[train_has_report & (train_labels == 1)][:, cxr_idx].mean(axis=0)
+        cxr_neg_ref = M_train[train_has_report & (train_labels == 0)][:, cxr_idx].mean(axis=0)
+        has_report["train"] = train_has_report
+        for s in ("val", "test"):
+            has_report[s] = raw_has_report(s, Xdf[s]["stay_id"].values)
+
     # ── Train prototypes ──────────────────────────────────────────────────────
     print("Building train prototypes...")
     if C.RETRIEVAL_SPACE == "embedding":
         train_bundle = build_train_prototypes_from_cache(
-            all_train_ids, train_labels, M_train, emb_cache, peer_cache)
+            all_train_ids, train_labels, M_train, emb_cache, peer_cache,
+            cxr_idx=cxr_idx, cxr_pos_ref=cxr_pos_ref, cxr_neg_ref=cxr_neg_ref,
+            has_report=has_report["train"])
     else:  # feature-space ablation: re-retrieve, excluding self
         train_bundle = build_prototypes_filtered(
             Xdf["train"], all_train_ids, train_labels, M_train,
             Xdf["train"], all_train_ids, train_labels, M_train, emb_cache,
-            space="feature", exclude_self=True)
+            space="feature", exclude_self=True,
+            cxr_idx=cxr_idx, cxr_pos_ref=cxr_pos_ref, cxr_neg_ref=cxr_neg_ref,
+            has_report=has_report["train"])
     print(f"  train: {len(train_bundle['stay_ids']):,} patients "
           f"(skipped {len(all_train_ids) - len(train_bundle['stay_ids']):,} empty-side)")
 
@@ -255,7 +317,9 @@ if __name__ == "__main__":
         bundles[s] = build_prototypes_filtered(
             Xdf[s], ids, lab, M[s].values.astype(np.float32),
             Xdf["train"], all_train_ids, train_labels, M_train, emb_cache,
-            space=C.RETRIEVAL_SPACE, exclude_self=False)
+            space=C.RETRIEVAL_SPACE, exclude_self=False,
+            cxr_idx=cxr_idx, cxr_pos_ref=cxr_pos_ref, cxr_neg_ref=cxr_neg_ref,
+            has_report=has_report[s])
 
     for s, b in bundles.items():
         with open(C.prototypes_path(s), "wb") as f:

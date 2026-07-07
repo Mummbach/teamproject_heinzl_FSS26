@@ -131,6 +131,59 @@ def fig_prototype_position(rec):
 def _lab(v): return "Long Stay" if v == 1 else "Short Stay"
 
 
+# Plain-text formatters shared with fd07_dashboard.py (imported there as `R`)
+# so the two renderers describe a patient identically instead of each
+# re-deriving the same strings from `rec`.
+
+def patient_info_line(rec):
+    """'Age 67 · Female · Neuro Intermediate · EW EMER. admission · Dx: Respiratory'.
+    Descriptive only, not a model input (age is the one exception)."""
+    pi = rec["patient_info"]
+    age = rec["patient"].get("age")
+    parts = []
+    if age is not None: parts.append(f"Age {age:.0f}")
+    parts.append(pi["gender"])
+    if pi["icu_unit"]: parts.append(pi["icu_unit"])
+    if pi["admission_type"]: parts.append(f"{pi['admission_type']} admission")
+    if pi["diagnosis_category"]: parts.append(f"Diagnosis Category: {pi['diagnosis_category']}")
+    return " · ".join(parts)
+
+
+def peer_group_criteria_line(rec):
+    """What fd02's hard filter actually matched peers on for this patient
+    (one-hot buckets — can read 'not filtered' where patient_info_line shows
+    real text, e.g. an ICU type outside the 7 recognized buckets)."""
+    age = rec["patient"].get("age")
+    if age is None:
+        return ""
+    fc = rec["peer_group"]["filter_criteria"]
+    lo, hi = age - C.AGE_TOLERANCE, age + C.AGE_TOLERANCE
+    icu = fc["icu_unit"] or "not filtered — no matching ICU category"
+    adm = fc["admission_type"] or "not filtered — no matching admission category"
+    dx = fc["diagnosis_category"] or "not filtered — no matching diagnosis category"
+    return (f"Same diagnosis category ({dx}), same ICU type ({icu}), "
+            f"same admission type ({adm}), age {lo:.0f}–{hi:.0f}")
+
+
+def peer_group_outcome_line(rec):
+    """Observed outcomes among the peer group, or '' if unavailable."""
+    pg = rec["peer_group"]
+    if pg["avg_los_days"] is None:
+        return ""
+    return (f"Among {pg['n_peers']} matching peers: avg LOS {pg['avg_los_days']:.1f} days, "
+            f"{pg['pct_long_stay']:.0f}% long-stay")
+
+
+def patient_info_html(rec):
+    return f"<div class='patinfo'>{patient_info_line(rec)}</div>"
+
+
+def peer_group_html(rec):
+    crit, outcome = peer_group_criteria_line(rec), peer_group_outcome_line(rec)
+    return (f"<div class='peergroup'><b>Peer group composition</b><br>{crit}"
+            + (f"<br>{outcome}" if outcome else "") + "</div>")
+
+
 def peers_html(rec):
     def tbl(title, peers):
         rows = "".join(
@@ -185,18 +238,29 @@ def reasons_html(rec):
             f"<ul>{items}</ul></div>")
 
 
+def _sec(title, body):
+    return f"<div class='sectionlabel'>{title}</div>{body}"
+
+
 def patient_block(rec, idx):
     correct = "✓ correct" if rec["pred_label"] == rec["true_label"] else "✗ wrong"
-    header = (f"<div class='phead'>stay_id <b>{rec['stay_id']}</b> &nbsp;|&nbsp; "
-              f"p(Long Stay) = <b>{rec['prob']:.3f}</b> &nbsp;|&nbsp; "
-              f"Prediction: <b>{_lab(rec['pred_label'])}</b> &nbsp;|&nbsp; "
-              f"Truth: <b>{_lab(rec['true_label'])}</b> &nbsp;|&nbsp; {correct}</div>")
-    figs = "".join(f.to_html(full_html=False, include_plotlyjs=False)
-                   for f in (fig_contributions(rec), fig_prototype_position(rec)))
+    stay_header = f"<div class='phead'>stay_id <b>{rec['stay_id']}</b></div>"
+    pred_header = (f"<div class='phead'>p(Long Stay) = <b>{rec['prob']:.3f}</b> &nbsp;|&nbsp; "
+                   f"Prediction: <b>{_lab(rec['pred_label'])}</b> &nbsp;|&nbsp; "
+                   f"Truth: <b>{_lab(rec['true_label'])}</b> &nbsp;|&nbsp; {correct}</div>")
+    contrib_fig = fig_contributions(rec).to_html(full_html=False, include_plotlyjs=False)
+    position_fig = fig_prototype_position(rec).to_html(full_html=False, include_plotlyjs=False)
+
     display = "block" if idx == 0 else "none"
+    sections = (
+        _sec("Patient", stay_header + patient_info_html(rec)),
+        _sec("Prediction", pred_header + reasons_html(rec)),
+        _sec("Explanation", raw_values_html(rec) + contrib_fig + cxr_support_html(rec)),
+        _sec("Peer Group Comparison", peer_group_html(rec) + support_html(rec) + peers_html(rec)),
+        _sec("Delta / Difference", position_fig),
+    )
     return (f"<div class='patient' id='pat{idx}' style='display:{display}'>"
-            f"{header}{reasons_html(rec)}{support_html(rec)}{raw_values_html(rec)}"
-            f"{figs}{cxr_support_html(rec)}{peers_html(rec)}</div>")
+            + "".join(sections) + "</div>")
 
 
 def build(window):
@@ -234,6 +298,10 @@ def build(window):
  .wrong{{background:#fdecea;border-left:3px solid #d62728;padding:8px 12px;font-size:14px;margin:8px 0}}
  .wrong ul{{margin:6px 0 0 18px}} .support{{color:#555;font-size:13px;margin:4px 0}}
  .cxr{{background:#eef7f0;border-left:3px solid #2e8b57;padding:8px 12px;font-size:14px;margin:8px 0}}
+ .sectionlabel{{text-transform:uppercase;letter-spacing:.04em;font-size:12px;font-weight:700;color:#888;margin:22px 0 6px;border-top:1px solid #eee;padding-top:14px}}
+ .patient>.sectionlabel:first-child{{border-top:none;margin-top:6px;padding-top:0}}
+ .patinfo{{font-size:14px;color:#333;margin:2px 0 4px}}
+ .peergroup{{background:#f4f4f4;border-radius:6px;padding:8px 12px;font-size:14px;margin:6px 0}}
  select{{font-size:14px;padding:4px}}
 </style></head><body>
 <h1>PRD-Net v2 — Feature Difference Dashboard ({window}h)</h1>

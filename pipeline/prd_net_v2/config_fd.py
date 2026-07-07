@@ -102,6 +102,16 @@ ICU_COLS = [
 ICD_COLS = [f"icd_{cat}" for cat in ICD_CATEGORIES]
 ADM_COLS = ["adm_emergency", "adm_urgent", "adm_elective", "adm_observation"]
 
+# Human-readable labels for the above, kept next to the column lists so they
+# can't silently drift out of sync (dashboard use: describing peer-group
+# filter criteria — coarser than the raw cohort text, since only these
+# buckets are recognized by the hard filter).
+ICU_LABELS = {"icu_micu": "MICU", "icu_sicu": "SICU", "icu_ccu": "CCU", "icu_cvicu": "CVICU",
+              "icu_micu_sicu": "MICU/SICU", "icu_tsicu": "TSICU", "icu_neuro_sicu": "Neuro SICU"}
+ADM_LABELS = {"adm_emergency": "Emergency", "adm_urgent": "Urgent",
+              "adm_elective": "Elective", "adm_observation": "Observation"}
+ICD_LABELS = {c: c[len("icd_"):].replace("_", " ").title() for c in ICD_COLS}
+
 # ── Reused caches from the existing track (peer retrieval only) ───────────────
 EMBEDDING_CACHE_PATH = OUTPUT_DIR / "prd_net_embeddings.pkl"
 PEER_CACHE_PATH      = OUTPUT_DIR / "prd_net_peers.pkl"

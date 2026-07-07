@@ -116,6 +116,61 @@ if __name__ == "__main__":
         return [{"stay_id": int(s), "true_label": int(train_lab.get(int(s), -1))}
                 for s in ids[:k]]
 
+    # ── General patient info + peer group composition/outcome (dashboard) ─────
+    # cohort.csv carries the raw demographic/admission text (ground truth) plus
+    # continuous LOS, absent from both the 77-dim clinical feature matrix and
+    # the binary los_gt7 label. The one-hot icd_*/icu_*/adm_* columns in
+    # X_test.parquet are a separate, coarser thing: exactly what fd02's hard
+    # filter matched peers on (only 7 recognized ICU buckets, etc.) — used
+    # below only to describe the peer-group filter criteria truthfully, not
+    # for general display (where the raw text is strictly more informative).
+    cohort = (pd.read_csv(C.OUTPUT_DIR / "cohort.csv",
+                          usecols=["stay_id", "gender", "first_careunit", "admission_type", "los"])
+              .set_index("stay_id"))
+    cohort_los = cohort["los"].to_dict()
+    demo = (pd.read_parquet(C.OUTPUT_DIR / "X_test.parquet",
+                            columns=["stay_id"] + C.ICD_COLS + C.ICU_COLS + C.ADM_COLS)
+            .set_index("stay_id"))
+
+    def _active_label(row, cols, labels):
+        return next((labels[c] for c in cols if row[c] > 0), None)
+
+    def filter_criteria(sid):
+        """One-hot-derived category fd02's hard filter actually matched this
+        patient on — can be None when the patient falls outside every
+        recognized bucket (the filter then skips that criterion entirely)."""
+        row = demo.loc[sid]
+        return {
+            "icu_unit": _active_label(row, C.ICU_COLS, C.ICU_LABELS),
+            "admission_type": _active_label(row, C.ADM_COLS, C.ADM_LABELS),
+            "diagnosis_category": _active_label(row, C.ICD_COLS, C.ICD_LABELS),
+        }
+
+    def patient_info(sid, fc):
+        """General demographics/admission context for display — raw cohort
+        text (more complete than the one-hot buckets); diagnosis has no raw-
+        text source, so it reuses the filter's one-hot category."""
+        row = cohort.loc[sid]
+        return {
+            "gender": "Male" if row["gender"] == "M" else "Female",
+            "icu_unit": row["first_careunit"],
+            "admission_type": row["admission_type"],
+            "diagnosis_category": fc["diagnosis_category"],
+        }
+
+    def peer_group_outcomes(peer_ids, fc):
+        """Avg LOS + % long-stay among the class-independent nearest peers
+        (same hard filter + age band as this patient) — the actual peer
+        group the dashboard shows, not just the top-3 displayed names."""
+        los = [cohort_los[s] for s in peer_ids if s in cohort_los]
+        long_rate = [train_lab[s] for s in peer_ids if s in train_lab]
+        return {
+            "n_peers": len(peer_ids),
+            "avg_los_days": round(float(np.mean(los)), 2) if los else None,
+            "pct_long_stay": round(100 * float(np.mean(long_rate)), 1) if long_rate else None,
+            "filter_criteria": fc,
+        }
+
     def diagnose(i):
         """Peer-support stats + heuristic reasons a prediction is probably wrong.
 
@@ -170,6 +225,7 @@ if __name__ == "__main__":
     for i, sid in enumerate(te["stay_ids"]):
         support, wrong_reasons = diagnose(i)
         pred = int(preds[i])
+        fc = filter_criteria(int(sid))
         c_order = np.argsort(np.abs(contribs[i]))[::-1]
         top_contrib = []
         for j in c_order:
@@ -202,6 +258,8 @@ if __name__ == "__main__":
             "cxr_support": cxr_support(i, pred),
             "support": support,
             "wrong_reasons": wrong_reasons,
+            "patient_info": patient_info(int(sid), fc),
+            "peer_group": peer_group_outcomes(te["all_peer_ids"][i], fc),
         })
 
     C.EXPORT_DIR.mkdir(exist_ok=True)
@@ -222,6 +280,8 @@ if __name__ == "__main__":
         "largest_dev_vs_short": json.dumps(r["largest_dev_vs_short"]),
         "support": json.dumps(r["support"]),
         "wrong_reasons": json.dumps(r["wrong_reasons"]),
+        "patient_info": json.dumps(r["patient_info"]),
+        "peer_group": json.dumps(r["peer_group"]),
     } for r in records])
     flat.to_parquet(base.with_suffix(".parquet"))
 

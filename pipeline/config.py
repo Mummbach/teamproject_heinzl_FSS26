@@ -59,6 +59,15 @@ URINE_ITEMIDS = [226559, 226560, 226561, 226584, 226563, 226564,
 
 # ── Physiological range filters ───────────────────────────────────────────────
 # Values outside these ranges are treated as measurement errors and dropped.
+# KNOWN ISSUE: lower bounds of 0 for sbp/dbp/map/spo2/heart_rate don't catch
+# probe-disconnect/lead-off artifacts (a monitor logging a literal 0, not a
+# real low reading). Confirmed in prd_net_v2 test data: a small number of
+# stays (~0.1-0.2%) get a 0 averaged into mean/min/last, producing a
+# clinically impossible aggregate (e.g. spo2_mean=8) that can dominate a
+# downstream model's prediction. Raising these lower bounds (e.g. spo2 to
+# ~50, sbp to ~50) would fix it at the source, but touches every consumer of
+# 02_features.py's output (prd_net v1 + v2) and requires a full rerun from
+# 02_features.py onward. Left as-is for now — documented, not fixed.
 RANGE_FILTERS = {
     "heart_rate":   (0,  300),
     "sbp":          (0,  300),

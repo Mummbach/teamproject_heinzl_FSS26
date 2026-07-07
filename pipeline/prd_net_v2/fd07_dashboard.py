@@ -73,8 +73,19 @@ if not subset:
 
 options = {f"{r['stay_id']} — pred {lab(r['pred_label'])} / true {lab(r['true_label'])} "
            f"(p={r['prob']:.2f})": r for r in subset}
-sel = st.sidebar.selectbox("Patient", list(options))
+labels = list(options)
+
+# Keep the same patient selected across window/filter switches. Option labels
+# embed window-specific p=/pred/truth, so Streamlit can't match the previous
+# selection by text alone and would otherwise silently jump back to the top
+# of the list — track the stable stay_id instead.
+stay_ids = [options[l]["stay_id"] for l in labels]
+prev_stay_id = st.session_state.get("selected_stay_id")
+default_idx = stay_ids.index(prev_stay_id) if prev_stay_id in stay_ids else 0
+
+sel = st.sidebar.selectbox("Patient", labels, index=default_idx)
 rec = options[sel]
+st.session_state["selected_stay_id"] = rec["stay_id"]
 
 # ── Global overview ───────────────────────────────────────────────────────────
 st.title(f"Feature Difference Dashboard ({window}h)")

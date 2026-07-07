@@ -20,7 +20,7 @@ from config import OUTPUT_DIR, ICD_CATEGORIES
 # ── Observation window ────────────────────────────────────────────────────────
 # Single switch driving the whole fd01->fd05 chain. 48 is the primary analysis;
 # set to 24 for the robustness / comparability run (Section 6 of the brief).
-WINDOW_HOURS = 48
+WINDOW_HOURS = 24
 
 # ── Aggregation (D5) ──────────────────────────────────────────────────────────
 # DESIGN DECISION D5 — aggregation granularity: summary stats per time-series

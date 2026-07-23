@@ -37,8 +37,8 @@ import config_fd as C
 
 _spec = importlib.util.spec_from_file_location("fd_model", Path(__file__).parent / "fd03_diff-model.py")
 _m = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_m)
-assemble_diff, input_dim, build_model, input_feature_labels = (
-    _m.assemble_diff, _m.input_dim, _m.build_model, _m.input_feature_labels)
+assemble_diff, input_dim, build_model, input_feature_labels, load_absolute_block = (
+    _m.assemble_diff, _m.input_dim, _m.build_model, _m.input_feature_labels, _m.load_absolute_block)
 
 
 def load_bundle(split):
@@ -55,20 +55,24 @@ if __name__ == "__main__":
 
     # ── Load model, threshold, scaler, train + test diff vectors ──────────────
     tr, te = load_bundle("train"), load_bundle("test")
-    Xtr = assemble_diff(tr["X"], tr["pos_proto"], tr["neg_proto"]).astype(np.float32)
-    Xte = assemble_diff(te["X"], te["pos_proto"], te["neg_proto"]).astype(np.float32)
+    abs_tr = load_absolute_block("train", tr["stay_ids"])
+    abs_te = load_absolute_block("test", te["stay_ids"])
+    Xtr = assemble_diff(tr["X"], tr["pos_proto"], tr["neg_proto"], absolute=abs_tr).astype(np.float32)
+    Xte = assemble_diff(te["X"], te["pos_proto"], te["neg_proto"], absolute=abs_te).astype(np.float32)
 
     model = build_model(input_dim()); model.load_state_dict(
         torch.load(C.checkpoint_path(), weights_only=True)); model.eval()
     thr = torch.load(C.threshold_path(), weights_only=True)["threshold"]
 
     with open(C.scaler_bundle_path(), "rb") as f:
-        scale = pickle.load(f)["scaler"].scale_          # (F,)
+        scaler = pickle.load(f)["scaler"]
+    scale, mean_ = scaler.scale_, scaler.mean_            # (F + A,)
 
     coef = model.linear.weight.detach().numpy().ravel()  # (in_dim,)
     bias = float(model.linear.bias.item())
     labels_in = input_feature_labels()
     feats = C.feature_names(); F = len(feats)
+    abs_feats = C.absolute_feature_names()
 
     # ── SHAP (interventional linear) vs manual w*(x-mean) ─────────────────────
     # Use the full train set as background (max_samples=len) — shap otherwise
@@ -130,11 +134,20 @@ if __name__ == "__main__":
         lines = []
         for j in order:
             side, feat = labels_in[j].split(":")
+            contrib = shap_vals[i, j]
+            toward = "long-stay" if contrib > 0 else "short-stay"
+            if side == "abs":
+                # Not a diff — patient's own hard-filter category, recovered
+                # from the scaled one-hot via the fitted scaler (raw is 0/1).
+                ai = F + abs_feats.index(feat)
+                raw_val = Xte[i, j] * scale[ai] + mean_[ai]
+                state = "present" if raw_val > 0.5 else "absent"
+                lines.append(f"      {feat} ({state}, patient's own category) "
+                             f"-> {contrib:+.3f} toward {toward}")
+                continue
             fi = feats.index(feat)
             raw_delta = float(Xte[i, j] * scale[fi])     # scaled delta -> raw units
             direction = "above" if raw_delta > 0 else "below"
-            contrib = shap_vals[i, j]
-            toward = "long-stay" if contrib > 0 else "short-stay"
             lines.append(
                 f"      {feat} {abs(raw_delta):.2f} {direction} the {proto_word(side)} "
                 f"prototype  -> {contrib:+.3f} toward {toward}")

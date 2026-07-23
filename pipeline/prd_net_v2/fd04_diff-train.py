@@ -37,8 +37,8 @@ import config_fd as C
 # fd03 has a digit + hyphen in its name -> importlib (same pattern as prd_net/)
 _spec = importlib.util.spec_from_file_location("fd_model", Path(__file__).parent / "fd03_diff-model.py")
 _m = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_m)
-assemble_diff, input_dim, build_model, build_logreg = (
-    _m.assemble_diff, _m.input_dim, _m.build_model, _m.build_logreg)
+assemble_diff, input_dim, build_model, build_logreg, load_absolute_block = (
+    _m.assemble_diff, _m.input_dim, _m.build_model, _m.build_logreg, _m.load_absolute_block)
 
 
 def load_bundle(split):
@@ -46,8 +46,9 @@ def load_bundle(split):
         return pickle.load(f)
 
 
-def make_xy(bundle):
-    X = assemble_diff(bundle["X"], bundle["pos_proto"], bundle["neg_proto"])
+def make_xy(bundle, split):
+    absolute = load_absolute_block(split, bundle["stay_ids"])
+    X = assemble_diff(bundle["X"], bundle["pos_proto"], bundle["neg_proto"], absolute=absolute)
     return X.astype(np.float32), bundle["labels"].astype(np.float32)
 
 
@@ -78,9 +79,9 @@ if __name__ == "__main__":
     print(f"fd04 — train difference model  (window={W}, model={C.MODEL}, "
           f"diff_input={C.DIFF_INPUT})")
 
-    Xtr, ytr = make_xy(load_bundle("train"))
-    Xva, yva = make_xy(load_bundle("val"))
-    Xte, yte = make_xy(load_bundle("test"))
+    Xtr, ytr = make_xy(load_bundle("train"), "train")
+    Xva, yva = make_xy(load_bundle("val"), "val")
+    Xte, yte = make_xy(load_bundle("test"), "test")
     in_dim = input_dim()
     print(f"  train {Xtr.shape}  val {Xva.shape}  test {Xte.shape}  in_dim={in_dim}")
 

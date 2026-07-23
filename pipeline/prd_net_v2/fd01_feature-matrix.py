@@ -154,6 +154,13 @@ def build_raw_matrix(ts: pd.DataFrame, X_split: pd.DataFrame,
 
     # Critical: column order must equal feature_names(); row order must equal X_split.
     mat = mat[C.feature_names()]
+
+    # Absolute (non-diff) hard-filter one-hots, appended after the diff-feature
+    # block — see config_fd.absolute_feature_names(). Pulled straight from
+    # X_split, which is already in the exact row order of `stay_ids`.
+    for col in C.absolute_feature_names():
+        mat[col] = X_split[col].to_numpy(dtype=np.float32)
+
     assert list(mat.index) == list(stay_ids), "feature matrix row order != X_split"
     return mat
 
@@ -208,6 +215,7 @@ if __name__ == "__main__":
             "scaler": scaler,
             "medians": medians,
             "feature_names": C.feature_names(),
+            "absolute_feature_names": C.absolute_feature_names(),
             "window_hours": W,
         }, f)
 

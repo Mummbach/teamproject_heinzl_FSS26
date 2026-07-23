@@ -112,6 +112,24 @@ ADM_LABELS = {"adm_emergency": "Emergency", "adm_urgent": "Urgent",
               "adm_elective": "Elective", "adm_observation": "Observation"}
 ICD_LABELS = {c: c[len("icd_"):].replace("_", " ").title() for c in ICD_COLS}
 
+# ── Absolute (non-differenced) hard-filter features ────────────────────────────
+# ICU_COLS/ICD_COLS/ADM_COLS above are used to select peers (see fd02), so a
+# DIFFERENCE against a matched peer group is ~0 by construction (see the
+# STATIC_FEATURES note) — that's why they were originally left out of
+# feature_names() entirely. But the patient's own category still carries real
+# baseline-risk signal the diff features never see (e.g. a CVICU/circulatory
+# stay has a different typical LOS than a MICU/general-medicine stay). Appended
+# to the model input UNCHANGED (never diffed against a prototype) via
+# assemble_diff(..., absolute=...) in fd03.
+USE_ABSOLUTE_FEATURES = True
+ABSOLUTE_FEATURES = ICU_COLS + ICD_COLS + ADM_COLS
+
+
+def absolute_feature_names() -> list[str]:
+    """Ordered list of the patient's-own-value (non-diff) input features."""
+    return list(ABSOLUTE_FEATURES) if USE_ABSOLUTE_FEATURES else []
+
+
 # ── Reused caches from the existing track (peer retrieval only) ───────────────
 EMBEDDING_CACHE_PATH = OUTPUT_DIR / "prd_net_embeddings.pkl"
 PEER_CACHE_PATH      = OUTPUT_DIR / "prd_net_peers.pkl"

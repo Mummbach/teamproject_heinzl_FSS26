@@ -37,8 +37,8 @@ import config_fd as C
 
 _spec = importlib.util.spec_from_file_location("fd_model", Path(__file__).parent / "fd03_diff-model.py")
 _m = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_m)
-assemble_diff, input_dim, build_model, input_feature_labels = (
-    _m.assemble_diff, _m.input_dim, _m.build_model, _m.input_feature_labels)
+assemble_diff, input_dim, build_model, input_feature_labels, load_absolute_block = (
+    _m.assemble_diff, _m.input_dim, _m.build_model, _m.input_feature_labels, _m.load_absolute_block)
 
 TOP_K = 5      # entries per ranked list in the export
 
@@ -53,8 +53,10 @@ if __name__ == "__main__":
     print(f"fd06 — dashboard export  (window={W})")
 
     tr, te = load_bundle("train"), load_bundle("test")
-    Xtr = assemble_diff(tr["X"], tr["pos_proto"], tr["neg_proto"]).astype(np.float32)
-    Xte = assemble_diff(te["X"], te["pos_proto"], te["neg_proto"]).astype(np.float32)
+    abs_tr = load_absolute_block("train", tr["stay_ids"])
+    abs_te = load_absolute_block("test", te["stay_ids"])
+    Xtr = assemble_diff(tr["X"], tr["pos_proto"], tr["neg_proto"], absolute=abs_tr).astype(np.float32)
+    Xte = assemble_diff(te["X"], te["pos_proto"], te["neg_proto"], absolute=abs_te).astype(np.float32)
 
     model = build_model(input_dim()); model.load_state_dict(
         torch.load(C.checkpoint_path(), weights_only=True)); model.eval()
@@ -69,13 +71,16 @@ if __name__ == "__main__":
     with open(C.scaler_bundle_path(), "rb") as f:
         sb = pickle.load(f)
     scaler = sb["scaler"]; feats = C.feature_names(); F = len(feats)
+    abs_feats = C.absolute_feature_names()
     CXR_SET = set(C.CXR_FEATURES)   # kept out of top_contributions; surfaced separately (cxr_support)
 
     # Raw-unit patient values and raw-unit prototypes (invert the scaler).
     raw_te = (pd.read_parquet(C.feature_matrix_path("test", scaled=False))
               .set_index("stay_id").loc[te["stay_ids"], feats])
-    pos_raw = te["pos_proto"] * scaler.scale_[None, :] + scaler.mean_[None, :]
-    neg_raw = te["neg_proto"] * scaler.scale_[None, :] + scaler.mean_[None, :]
+    # te["pos_proto"]/["neg_proto"] are diff-feature-only (F dims) — fd02 never
+    # touches the absolute block, so slice the scaler to the first F entries.
+    pos_raw = te["pos_proto"] * scaler.scale_[None, :F] + scaler.mean_[None, :F]
+    neg_raw = te["neg_proto"] * scaler.scale_[None, :F] + scaler.mean_[None, :F]
     patient_raw = raw_te.values
     delta_pos_raw = patient_raw - pos_raw          # signed raw deviation vs long proto
     delta_neg_raw = patient_raw - neg_raw          # signed raw deviation vs short proto
@@ -231,6 +236,20 @@ if __name__ == "__main__":
         for j in c_order:
             side, feat = labels_in[j].split(":")
             if feat in CXR_SET:      # surfaced separately via cxr_support, not here
+                continue
+            if side == "abs":
+                # Not a diff — patient's own hard-filter category (see
+                # filter_criteria/patient_info); raw is 0/1, recovered via the scaler.
+                ai = F + abs_feats.index(feat)
+                raw_val = Xte[i, j] * scaler.scale_[ai] + scaler.mean_[ai]
+                top_contrib.append({
+                    "input": labels_in[j], "feature": feat,
+                    "prototype": "own category",
+                    "raw_value": 1.0 if raw_val > 0.5 else 0.0,  # binary one-hot
+                    "contribution": round(float(contribs[i, j]), 4),
+                })
+                if len(top_contrib) == TOP_K:
+                    break
                 continue
             fi = feats.index(feat)
             top_contrib.append({

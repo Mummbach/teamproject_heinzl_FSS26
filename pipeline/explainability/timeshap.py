@@ -50,7 +50,6 @@ from config import OUTPUT_DIR
 from multimodal_utils import ICUDataset, load_multimodal_model
 
 SEED          = 42
-N_BG          = 50
 N_PATIENTS    = 30
 N_SHAP_SAMPLE = 128
 DEVICE        = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -59,8 +58,6 @@ torch.manual_seed(SEED)
 np.random.seed(SEED)
 print(f"Device: {DEVICE}")
 
-
-# load data and model
 
 print("Loading data...")
 X_test  = pd.read_parquet(OUTPUT_DIR / "X_test_scaled.parquet")
@@ -102,11 +99,6 @@ if not preds_path.exists():
 else:
     preds = pd.read_parquet(preds_path)
 
-rng = np.random.default_rng(SEED)
-
-
-# predictor wrapper for kernel shap
-# absent hours (mask=0) are set to 0, consistent with how the model handles missing data
 
 def make_ts_predictor(static_vec: np.ndarray):
     static_batch = torch.tensor(static_vec, dtype=torch.float32).unsqueeze(0).to(DEVICE)
@@ -132,9 +124,6 @@ def make_ts_predictor(static_vec: np.ndarray):
 
 
 background_mask = np.zeros((1, 48), dtype=np.float32)
-
-
-# select patients
 
 test_preds = (preds[preds["split"] == "test"]
               .merge(y_test[["stay_id", "los_gt7"]], on="stay_id")
@@ -170,8 +159,6 @@ def compute_timeshap(stay_id: int) -> np.ndarray:
     )
     return shap_values[0]
 
-
-# per-patient plots
 
 print("\nPer-patient TimeSHAP plots...")
 
@@ -218,8 +205,6 @@ for case_name, row in spotlight.items():
     print(f"  Saved timeshap_patient_{case_name}.png")
 
 
-# population heatmap
-
 print(f"\nPopulation heatmap ({N_PATIENTS} patients)...")
 
 all_sv   = np.zeros((N_PATIENTS, 48), dtype=np.float32)
@@ -261,8 +246,6 @@ plt.savefig(EXPLAIN_OUT / "timeshap_heatmap.png", dpi=150, bbox_inches="tight")
 plt.close()
 print("  Saved timeshap_heatmap.png")
 
-
-# hourly importance bar chart
 
 print("\nHourly importance bar chart...")
 

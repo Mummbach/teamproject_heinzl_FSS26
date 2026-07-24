@@ -46,7 +46,7 @@ except ImportError:
 
 from config import OUTPUT_DIR
 from multimodal_utils import (
-    ICUDataset, GRUModel, SHAPWrapper, load_multimodal_model,
+    ICUDataset, SHAPWrapper, load_multimodal_model,
     get_cxr_feature_groups,
 )
 
@@ -59,8 +59,6 @@ torch.manual_seed(SEED)
 np.random.seed(SEED)
 print(f"Device: {DEVICE}")
 
-
-# load data
 
 print("Loading data...")
 X_train = pd.read_parquet(OUTPUT_DIR / "X_train_scaled.parquet")
@@ -89,8 +87,6 @@ train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=False)
 test_loader  = DataLoader(test_ds,  batch_size=BATCH_SIZE, shuffle=False)
 
 
-# load model
-
 model = load_multimodal_model(
     OUTPUT_DIR / "best_gru_model.pt",
     ts_input_size=len(TS_FEATURES),
@@ -110,8 +106,6 @@ bg_static = torch.tensor(train_ds.static_arr[bg_idx]).to(DEVICE)
 explainer = shap.GradientExplainer(shap_model, [bg_ts, bg_static])
 print(f"GradientExplainer ready (background n={len(bg_idx)})")
 
-
-# compute shap values
 
 def compute_shap_for_loader(loader, dataset_name):
     all_static_shap, all_ts_shap, all_stay_ids = [], [], []
@@ -157,8 +151,6 @@ explanations.to_parquet(EXPLAIN_OUT / "explanations.parquet", index=False)
 print(f"\nSaved explanations.parquet ({len(explanations):,} rows)")
 
 
-# summary plot — all static features
-
 print("\nGenerating SHAP summary plot...")
 test_static_shap = df_test[STATIC_FEATURES].values
 test_static_vals = X_test.drop(columns=["stay_id"]).values
@@ -178,8 +170,6 @@ plt.close()
 print("Saved shap_summary.png")
 
 
-# cxr-only summary plot
-
 if HAS_CXR_FEATURES:
     print("\nGenerating CXR-only SHAP summary plot...")
     cxr_idx  = [STATIC_FEATURES.index(c) for c in CXR_FEATURES_PRESENT]
@@ -197,8 +187,6 @@ if HAS_CXR_FEATURES:
     plt.close()
     print("Saved shap_summary_cxr.png")
 
-
-# console summary
 
 mean_abs = pd.Series(
     np.abs(test_static_shap).mean(axis=0), index=STATIC_FEATURES

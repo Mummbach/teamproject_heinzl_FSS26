@@ -38,28 +38,18 @@ from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     roc_auc_score, average_precision_score,
 )
-from pathlib import Path
 from typing import Optional
 from config import OUTPUT_DIR
 
-# Reproducibility 
 SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 
-# Hourly time-series branch
 USE_HOURLY_TIMESERIES = True
 
-# CXR text branch
-USE_TEXT = False   # False = baseline (no radiology text), True = with BioClinicalBERT
-TEXT_DIM = 64         # projection size for CXR embeddings
-
-# CXR-only cohort
-# True  — train/val/test restricted to patients with a CXR report
-# False — full cohort, patients without report get zero vector (default)
+USE_TEXT = False
 CXR_ONLY = False
 
-# Hyperparameters 
 BATCH_SIZE    = 64
 EPOCHS        = 30
 LEARNING_RATE = 6e-3
@@ -71,7 +61,6 @@ TEXT_DIM      = 32
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {DEVICE}")
-
 
 
 # DATASET
@@ -93,7 +82,6 @@ class ICUDataset(Dataset):
         self.labels     = y.set_index("stay_id").loc[self.stay_ids, "los_gt7"].values.astype(np.float32)
         self.ts_features = ts_features
 
-        # Build (stays, 48, 12) array from long-format timeseries
         # Fill remaining NaN (vitals with no data at all) with 0
         ts_pivot = (
             ts[ts["stay_id"].isin(self.stay_ids)]
@@ -101,7 +89,6 @@ class ICUDataset(Dataset):
             .set_index(["stay_id", "hour"])[ts_features]
             .fillna(0.0)
         )
-        # Pivot to (stay, hour, feature) — shape (N, 48, 12)
         stays_ordered = list(self.stay_ids)
         self.ts_arr = np.zeros(
             (len(stays_ordered), 48, len(ts_features)), dtype=np.float32
@@ -110,7 +97,6 @@ class ICUDataset(Dataset):
             if sid in ts_pivot.index.get_level_values("stay_id"):
                 self.ts_arr[i] = ts_pivot.loc[sid].values
 
-        # Build (stays, 1536) CXR embedding array.
         # Patients without a report get a zero vector — the model receives
         # has_cxr=0 via the static features so it can learn to down-weight absent text.
         cxr_cols = [c for c in cxr.columns if c.startswith("cxr_")] if cxr is not None else []
@@ -127,12 +113,11 @@ class ICUDataset(Dataset):
 
     def __getitem__(self, idx):
         return (
-            torch.tensor(self.ts_arr[idx]),      # (48, 12)
-            torch.tensor(self.static_arr[idx]),  # (F,)
-            torch.tensor(self.cxr_arr[idx]),     # (1536,)
-            torch.tensor(self.labels[idx]),      # scalar
+            torch.tensor(self.ts_arr[idx]),
+            torch.tensor(self.static_arr[idx]),
+            torch.tensor(self.cxr_arr[idx]),
+            torch.tensor(self.labels[idx]),
         )
-
 
 
 # MODEL
@@ -207,7 +192,7 @@ class GRUModel(nn.Module):
 # METRICS
 
 def compute_metrics(labels: np.ndarray, logits: np.ndarray) -> dict:
-    probs = 1 / (1 + np.exp(-logits))   # sigmoid
+    probs = 1 / (1 + np.exp(-logits))
     preds = (probs >= 0.5).astype(int)
     return {
         "accuracy":  accuracy_score(labels, preds),
@@ -217,7 +202,6 @@ def compute_metrics(labels: np.ndarray, logits: np.ndarray) -> dict:
         "auroc":     roc_auc_score(labels, probs),
         "auprc":     average_precision_score(labels, probs),
     }
-
 
 
 # TRAINING LOOP
@@ -252,7 +236,6 @@ def evaluate(model, loader):
 
 # MAIN
 
-# Load data
 print("Loading data...")
 X_train = pd.read_parquet(OUTPUT_DIR / "X_train_scaled.parquet")
 X_val   = pd.read_parquet(OUTPUT_DIR / "X_val_scaled.parquet")
@@ -300,7 +283,6 @@ pos_weight = torch.tensor([n_neg / n_pos], dtype=torch.float32).to(DEVICE)
 print(f"\nClass balance (train): {n_pos:,} positive / {n_neg:,} negative")
 print(f"  pos_weight = {pos_weight.item():.2f}")
 
-# Datasets & DataLoaders
 train_ds = ICUDataset(X_train, y_train, ts, TS_FEATURES, cxr)
 val_ds   = ICUDataset(X_val,   y_val,   ts, TS_FEATURES, cxr)
 test_ds  = ICUDataset(X_test,  y_test,  ts, TS_FEATURES, cxr)
@@ -309,21 +291,20 @@ train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
 val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False)
 test_loader  = DataLoader(test_ds,  batch_size=BATCH_SIZE, shuffle=False)
 
-# Model, loss, optimizer
 static_input_size = X_train.shape[1] - 1   # exclude stay_id
 
 use_text_actual = USE_TEXT and cxr is not None
 
 model = GRUModel(
-    ts_input_size    = len(TS_FEATURES),
-    static_input_size= static_input_size,
-    hidden_size      = HIDDEN_SIZE,
-    num_layers       = NUM_LAYERS,
-    static_dim       = STATIC_DIM,
-    dropout          = DROPOUT,
-    use_gru          = USE_HOURLY_TIMESERIES,
-    use_text         = use_text_actual,
-    text_dim         = TEXT_DIM,
+    ts_input_size     = len(TS_FEATURES),
+    static_input_size = static_input_size,
+    hidden_size       = HIDDEN_SIZE,
+    num_layers        = NUM_LAYERS,
+    static_dim        = STATIC_DIM,
+    dropout           = DROPOUT,
+    use_gru           = USE_HOURLY_TIMESERIES,
+    use_text          = use_text_actual,
+    text_dim          = TEXT_DIM,
 ).to(DEVICE)
 print(f"GRU branch  : {'enabled' if USE_HOURLY_TIMESERIES else 'disabled (static only)'}")
 print(f"Text branch : {'enabled' if use_text_actual else 'disabled'}")
@@ -333,7 +314,6 @@ optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
 print(f"\nModel parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-# Training
 print(f"\n{'Epoch':<6} {'Loss':<10} {'F1':<8} {'Prec':<8} {'Rec':<8} {'AUROC':<8}")
 print("─" * 52)
 
@@ -354,7 +334,6 @@ for epoch in range(1, EPOCHS + 1):
 
     log_rows.append({"epoch": epoch, "train_loss": train_loss, **val_metrics})
 
-    # Save best checkpoint based on validation F1
     if f1 > best_val_f1:
         best_val_f1 = f1
         best_epoch  = epoch
@@ -362,7 +341,6 @@ for epoch in range(1, EPOCHS + 1):
 
 print(f"\nBest checkpoint: epoch {best_epoch}  (val F1 = {best_val_f1:.4f})")
 
-# Test evaluation
 print("\nLoading best checkpoint for test evaluation...")
 model.load_state_dict(torch.load(OUTPUT_DIR / "best_gru_model.pt", weights_only=True))
 test_metrics = evaluate(model, test_loader)
@@ -375,7 +353,6 @@ print(f"  F1        : {test_metrics['f1']:.4f}")
 print(f"  AUROC     : {test_metrics['auroc']:.4f}")
 print(f"  AUPRC     : {test_metrics['auprc']:.4f}")
 
-# Save training log
 log_df = pd.DataFrame(log_rows)
 log_df.to_csv(OUTPUT_DIR / "training_log.csv", index=False)
 print(f"\nSaved: output/best_gru_model.pt")

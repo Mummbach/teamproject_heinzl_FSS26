@@ -51,35 +51,32 @@ except ImportError:
 
 from config import OUTPUT_DIR
 from multimodal_utils import (
-    ICUDataset, GRUModel, SHAPWrapper, load_multimodal_model,
+    ICUDataset, SHAPWrapper, load_multimodal_model,
     get_cxr_feature_groups,
 )
 
-SEED       = 42
-N_HEATMAP  = 200
-BATCH_SIZE = 256
-DEVICE     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+SEED = 42
+N_HEATMAP = 200
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 print(f"Device: {DEVICE}")
 
 
-# load data
-
 print("Loading data...")
-X_test       = pd.read_parquet(OUTPUT_DIR / "X_test_scaled.parquet")
-X_train      = pd.read_parquet(OUTPUT_DIR / "X_train_scaled.parquet")
-y_test       = pd.read_parquet(OUTPUT_DIR / "y_test.parquet")
-y_train      = pd.read_parquet(OUTPUT_DIR / "y_train.parquet")
-ts           = pd.read_parquet(OUTPUT_DIR / "timeseries.parquet")
+X_test = pd.read_parquet(OUTPUT_DIR / "X_test_scaled.parquet")
+X_train = pd.read_parquet(OUTPUT_DIR / "X_train_scaled.parquet")
+y_test = pd.read_parquet(OUTPUT_DIR / "y_test.parquet")
+y_train = pd.read_parquet(OUTPUT_DIR / "y_train.parquet")
+ts = pd.read_parquet(OUTPUT_DIR / "timeseries.parquet")
 explanations = pd.read_parquet(EXPLAIN_OUT / "explanations.parquet")
-predictions  = pd.read_parquet(EXPLAIN_OUT / "predictions.parquet")
+predictions = pd.read_parquet(EXPLAIN_OUT / "predictions.parquet")
 
-TS_FEATURES     = [c for c in ts.columns if c not in ["stay_id", "hour"]]
+TS_FEATURES = [c for c in ts.columns if c not in ["stay_id", "hour"]]
 STATIC_FEATURES = [c for c in X_test.columns if c != "stay_id"]
-groups          = get_cxr_feature_groups(STATIC_FEATURES)
-CXR_FEATURES    = groups["cxr_all"]
+groups = get_cxr_feature_groups(STATIC_FEATURES)
+CXR_FEATURES = groups["cxr_all"]
 
 print(f"  Static features      : {len(STATIC_FEATURES)}")
 print(f"  Time-series features : {len(TS_FEATURES)}")
@@ -87,12 +84,10 @@ print(f"  Explanations rows    : {len(explanations):,}")
 if CXR_FEATURES:
     print(f"  CXR features present : {len(CXR_FEATURES)}")
 
-test_expl  = explanations[explanations["split"] == "test"].reset_index(drop=True)
+test_expl = explanations[explanations["split"] == "test"].reset_index(drop=True)
 test_preds = predictions[predictions["split"] == "test"].reset_index(drop=True)
 test_preds = test_preds.merge(y_test[["stay_id", "los_gt7"]], on="stay_id", how="left")
 
-
-# load model
 
 model = load_multimodal_model(
     OUTPUT_DIR / "best_gru_model.pt",
@@ -104,10 +99,10 @@ shap_model = SHAPWrapper(model).to(DEVICE)
 shap_model.eval()
 print("Model loaded.")
 
-train_ds  = ICUDataset(X_train, y_train, ts, TS_FEATURES)
-rng       = np.random.default_rng(SEED)
-bg_idx    = rng.choice(len(train_ds), size=min(200, len(train_ds)), replace=False)
-bg_ts     = torch.tensor(train_ds.ts_arr[bg_idx]).to(DEVICE)
+train_ds = ICUDataset(X_train, y_train, ts, TS_FEATURES)
+rng = np.random.default_rng(SEED)
+bg_idx = rng.choice(len(train_ds), size=min(200, len(train_ds)), replace=False)
+bg_ts = torch.tensor(train_ds.ts_arr[bg_idx]).to(DEVICE)
 bg_static = torch.tensor(train_ds.static_arr[bg_idx]).to(DEVICE)
 
 explainer = shap.GradientExplainer(shap_model, [bg_ts, bg_static])
@@ -119,7 +114,7 @@ print("GradientExplainer ready.")
 print("\nWaterfall plots...")
 
 test_preds_sorted = test_preds.sort_values("y_prob").reset_index(drop=True)
-n_test            = len(test_preds_sorted)
+n_test = len(test_preds_sorted)
 
 patient_cases = {
     "high_risk":   test_preds_sorted.iloc[-1],
@@ -132,7 +127,7 @@ base_value = float(test_preds["y_prob"].mean())
 TOP_N_WATERFALL = 15
 
 for case_name, patient_row in patient_cases.items():
-    sid    = patient_row["stay_id"]
+    sid = patient_row["stay_id"]
     y_prob = float(patient_row["y_prob"])
     y_true = int(patient_row["los_gt7"])
 
@@ -140,25 +135,25 @@ for case_name, patient_row in patient_cases.items():
         print(f"  WARNING: stay_id {sid} not in explanations, skipping {case_name}")
         continue
 
-    shap_row    = test_expl_indexed.loc[sid, STATIC_FEATURES].values.astype(float)
+    shap_row = test_expl_indexed.loc[sid, STATIC_FEATURES].values.astype(float)
     feature_row = X_test.set_index("stay_id").loc[sid, STATIC_FEATURES].values.astype(float)
 
-    order    = np.argsort(np.abs(shap_row))[::-1]
-    top_idx  = order[:TOP_N_WATERFALL]
+    order = np.argsort(np.abs(shap_row))[::-1]
+    top_idx = order[:TOP_N_WATERFALL]
     top_shap = shap_row[top_idx]
     top_names = [STATIC_FEATURES[i] for i in top_idx]
-    top_vals  = feature_row[top_idx]
-    residual  = shap_row.sum() - top_shap.sum()
+    top_vals = feature_row[top_idx]
+    residual = shap_row.sum() - top_shap.sum()
 
     fig, ax = plt.subplots(figsize=(9, 6))
 
-    shap_with_residual  = np.append(top_shap, residual)
+    shap_with_residual = np.append(top_shap, residual)
     names_with_residual = top_names + [f"... {len(STATIC_FEATURES) - TOP_N_WATERFALL} others"]
 
-    cumulative  = base_value
+    cumulative = base_value
     bar_bottoms = []
     bar_heights = []
-    bar_colors  = []
+    bar_colors = []
     y_positions = list(range(len(shap_with_residual)))
 
     for sv in shap_with_residual:
@@ -173,7 +168,7 @@ for case_name, patient_row in patient_cases.items():
     labels = []
     for name, val, sv in zip(names_with_residual, np.append(top_vals, [np.nan]), shap_with_residual):
         sign = "+" if sv >= 0 else "−"
-        tag  = " [CXR]" if name in CXR_FEATURES else ""
+        tag = " [CXR]" if name in CXR_FEATURES else ""
         if np.isnan(val):
             labels.append(f"{name}{tag}   ({sign}{abs(sv):.3f})")
         else:
@@ -182,7 +177,7 @@ for case_name, patient_row in patient_cases.items():
     ax.set_yticks(y_positions)
     ax.set_yticklabels(labels, fontsize=8)
     ax.axvline(base_value, color="black", linewidth=1.2, linestyle="--", label=f"E[f(x)] = {base_value:.3f}")
-    ax.axvline(y_prob,     color="gray",  linewidth=1.2, linestyle=":",  label=f"f(x) = {y_prob:.3f}")
+    ax.axvline(y_prob, color="gray", linewidth=1.2, linestyle=":", label=f"f(x) = {y_prob:.3f}")
 
     truth_str = "prolonged (>7d)" if y_true == 1 else "normal (≤7d)"
     ax.set_xlabel("Model output (probability)", fontsize=10)
@@ -208,8 +203,8 @@ test_static_shap = test_expl[STATIC_FEATURES].values
 test_static_vals = X_test.drop(columns=["stay_id"]).values
 
 mean_abs_shap = np.abs(test_static_shap).mean(axis=0)
-top3_idx      = np.argsort(mean_abs_shap)[::-1][:3]
-top3_names    = [STATIC_FEATURES[i] for i in top3_idx]
+top3_idx = np.argsort(mean_abs_shap)[::-1][:3]
+top3_names = [STATIC_FEATURES[i] for i in top3_idx]
 
 print(f"  Top-3 static features: {top3_names}")
 
@@ -240,9 +235,9 @@ print(f"\nTS SHAP heatmap ({N_HEATMAP} patients)...")
 
 test_ds = ICUDataset(X_test, y_test, ts, TS_FEATURES)
 
-rng_hm    = np.random.default_rng(SEED + 1)
-hm_idx    = rng_hm.choice(len(test_ds), size=min(N_HEATMAP, len(test_ds)), replace=False)
-hm_ts     = torch.tensor(test_ds.ts_arr[hm_idx]).to(DEVICE)
+rng_hm = np.random.default_rng(SEED + 1)
+hm_idx = rng_hm.choice(len(test_ds), size=min(N_HEATMAP, len(test_ds)), replace=False)
+hm_ts = torch.tensor(test_ds.ts_arr[hm_idx]).to(DEVICE)
 hm_static = torch.tensor(test_ds.static_arr[hm_idx]).to(DEVICE)
 
 print(f"  Running GradientExplainer on {len(hm_idx)} test patients...")
@@ -292,13 +287,13 @@ fraction_of_positives, mean_predicted_value = calibration_curve(
     y_true_test, y_prob_test, n_bins=N_BINS, strategy="uniform"
 )
 
-bin_edges  = np.linspace(0, 1, N_BINS + 1)
+bin_edges = np.linspace(0, 1, N_BINS + 1)
 bin_counts = np.zeros(N_BINS, dtype=int)
 for i in range(N_BINS):
     mask = (y_prob_test >= bin_edges[i]) & (y_prob_test < bin_edges[i + 1])
     bin_counts[i] = mask.sum()
 
-n_returned   = len(fraction_of_positives)
+n_returned = len(fraction_of_positives)
 valid_counts = np.array([bin_counts[i] for i in range(N_BINS) if bin_counts[i] > 0])[:n_returned]
 ece = float(
     np.sum(valid_counts * np.abs(fraction_of_positives - mean_predicted_value)) / valid_counts.sum()

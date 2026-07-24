@@ -7,12 +7,12 @@ from pathlib import Path
 
 # ── Directory paths ───────────────────────────────────────────────────────────
 # BASE_DIR resolves to the pipeline/ folder regardless of working directory
-BASE_DIR    = Path(__file__).parent
-DATA_DIR    = BASE_DIR / "data"
-HOSP_DIR    = DATA_DIR / "hosp"
-CORE_DIR    = DATA_DIR / "core"   # PhysioNet: admissions, patients, transfers
-ICU_DIR     = DATA_DIR / "icu"
-OUTPUT_DIR  = BASE_DIR / "output"
+BASE_DIR = Path(__file__).parent
+DATA_DIR = BASE_DIR / "data"
+HOSP_DIR = DATA_DIR / "hosp"
+CORE_DIR = DATA_DIR / "core"
+ICU_DIR = DATA_DIR / "icu"
+OUTPUT_DIR = BASE_DIR / "output"
 
 # admissions.csv.gz and patients.csv.gz live in core/ on PhysioNet
 # but some distributions (e.g. Mika's zip) put them in hosp/.
@@ -24,47 +24,43 @@ def _resolve(filename: str) -> Path:
     return HOSP_DIR / filename
 
 ADMISSIONS_PATH = _resolve("admissions.csv.gz")
-PATIENTS_PATH   = _resolve("patients.csv.gz")
-TRANSFERS_PATH  = _resolve("transfers.csv.gz")
+PATIENTS_PATH = _resolve("patients.csv.gz")
+TRANSFERS_PATH = _resolve("transfers.csv.gz")
 
 # RXCUI → ATC mapping file (download separately if missing)
 # Source: https://github.com/MIT-LCP/mimic-code
 MAPPING_PATH = DATA_DIR / "RXCUI2atc4.csv"
 
 # ── Cohort thresholds ─────────────────────────────────────────────────────────
-THRESHOLD    = 7    # LOS > THRESHOLD days → prolonged_stay = 1
-OBS_WINDOW   = 48   # hours of observation used for time-series features
-MIN_LOS_DAYS = 2    # minimum LOS to ensure a full 48h observation window
-MIN_AGE      = 18
+THRESHOLD = 7  # LOS > THRESHOLD days → prolonged_stay = 1
+OBS_WINDOW = 48  # hours of observation used for time-series features
+MIN_LOS_DAYS = 2  # minimum LOS to ensure a full 48h observation window
+MIN_AGE = 18
 
 # ── Vital sign itemids from chartevents ──────────────────────────────────────
 # Each entry: itemid → (feature_name, unit_flag)
 # unit_flag "F" = Fahrenheit (will be converted to Celsius)
 VITAL_ITEMIDS = {
-    # Heart rate
-    220045: ("heart_rate",    None),
+    220045: ("heart_rate", None),
     # Blood pressure — invasive (arterial line)
-    220050: ("sbp",           None),
-    220051: ("dbp",           None),
-    220052: ("map",           None),
+    220050: ("sbp", None),
+    220051: ("dbp", None),
+    220052: ("map", None),
     # Blood pressure — non-invasive (NIBP cuff)
-    220179: ("sbp",           None),
-    220180: ("dbp",           None),
-    220181: ("map",           None),
-    # Respiratory rate
-    220210: ("resp_rate",     None),
-    # Oxygen saturation
-    220277: ("spo2",          None),
+    220179: ("sbp", None),
+    220180: ("dbp", None),
+    220181: ("map", None),
+    220210: ("resp_rate", None),
+    220277: ("spo2", None),
     # Temperature — both units present in MIMIC-IV
-    223761: ("temperature_f", "F"),   # Fahrenheit → converted to Celsius
-    223762: ("temperature_c", "C"),   # already Celsius
-    # Blood glucose
-    220621: ("glucose",       None),
-    225664: ("glucose",       None),
+    223761: ("temperature_f", "F"),  # Fahrenheit → converted to Celsius
+    223762: ("temperature_c", "C"),  # already Celsius
+    220621: ("glucose", None),
+    225664: ("glucose", None),
     # Glasgow Coma Scale (3 components)
-    220739: ("gcs_eye",       None),
-    223900: ("gcs_verbal",    None),
-    223901: ("gcs_motor",     None),
+    220739: ("gcs_eye", None),
+    223900: ("gcs_verbal", None),
+    223901: ("gcs_motor", None),
 }
 
 # Itemids for urine output (from outputevents, not chartevents)
@@ -74,22 +70,21 @@ URINE_ITEMIDS = [226559, 226560, 226561, 226584, 226563, 226564,
 # ── Physiological range filters ───────────────────────────────────────────────
 # Values outside these ranges are treated as measurement errors and dropped.
 RANGE_FILTERS = {
-    "heart_rate":   (0,  300),
-    "sbp":          (0,  300),
-    "dbp":          (0,  200),
-    "map":          (0,  250),
-    "resp_rate":    (0,   80),
-    "spo2":         (0,  100),
-    "temperature":  (25,  45),   # Celsius after conversion
-    "glucose":      (0, 1000),
-    "gcs_eye":      (1,    4),
-    "gcs_verbal":   (1,    5),
-    "gcs_motor":    (1,    6),
-    "gcs_total":    (3,   15),
+    "heart_rate": (0, 300),
+    "sbp": (0, 300),
+    "dbp": (0, 200),
+    "map": (0, 250),
+    "resp_rate": (0, 80),
+    "spo2": (0, 100),
+    "temperature": (25, 45),  # Celsius after conversion
+    "glucose": (0, 1000),
+    "gcs_eye": (1, 4),
+    "gcs_verbal": (1, 5),
+    "gcs_motor": (1, 6),
+    "gcs_total": (3, 15),
     "urine_output": (0, 5000),
 }
 
-# Final ordered list of time-series features
 TS_FEATURES = [
     "heart_rate", "sbp", "dbp", "map", "resp_rate", "spo2",
     "temperature", "glucose", "gcs_eye", "gcs_verbal", "gcs_motor",
@@ -115,7 +110,7 @@ ICD9_RANGES = [
     ("760", "779", "perinatal"),
     ("780", "799", "ill_defined"),
     ("800", "999", "injury"),
-    ("E",   "V",   "supplementary"),
+    ("E", "V", "supplementary"),
 ]
 
 # ICD-10 first-character(s) → disease category

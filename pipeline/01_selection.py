@@ -21,11 +21,9 @@ Output:     output/cohort.csv  +  output/cohort_stay_ids.txt
 """
 
 import pandas as pd
-from config import HOSP_DIR, ICU_DIR, OUTPUT_DIR, ADMISSIONS_PATH, PATIENTS_PATH
+from config import ICU_DIR, OUTPUT_DIR, ADMISSIONS_PATH, PATIENTS_PATH
 
 OUTPUT_DIR.mkdir(exist_ok=True)
-
-# Load raw tables
 
 icustays = pd.read_csv(
     ICU_DIR / "icustays.csv.gz",
@@ -47,9 +45,7 @@ print(f"  patients   : {len(patients):>7,} rows")
 print(f"  admissions : {len(admissions):>7,} rows")
 
 # First ICU stay per patient
-# Sort by admission earliest stay.
 # Using only the first stay avoids data leakage from prior hospitalizations
-# Group-based splitting
 icustays = icustays.sort_values(["subject_id", "intime"])
 icustays = icustays.groupby("subject_id", as_index=False).first()
 
@@ -58,7 +54,6 @@ print(f"\nAfter keeping first ICU stay per patient: {len(icustays):,}")
 # Sanity check: groupby().first() should guarantee one stay_id per patient.
 assert icustays["stay_id"].nunique() == len(icustays), "duplicate stay_ids found after first-stay filter"
 
-# Merge icustays, patients, admissions
 df = (
     icustays
     .merge(patients,   on="subject_id",             how="left")
@@ -66,28 +61,22 @@ df = (
 )
 
 # to protect patient privacy, all real dates are shifted by a random offset per patient
-# age_at_icu = anchor_age + (icu_admission_year - anchor_year)
 df["icu_admission_year"] = df["intime"].dt.year
 df["age_at_icu"] = df["anchor_age"] + (df["icu_admission_year"] - df["anchor_year"])
 
-
-# Inclusion / exclusion filters
 print("\nApplying selection criteria ...")
 n = len(df)
 
-# Adults only (age >= 18)
 df = df[df["age_at_icu"] >= 18]
 print(f"  age >= 18:                  {len(df):>7,}  (removed {n - len(df):,})")
 n = len(df)
 
-# Minimum ICU LOS >= 2 days
 # Stays shorter than 2 days are often observation stays or rapid recoveries;
 # predicting >7 days for these is clinically trivial and skews the label distribution.
 df = df[df["los"] >= 2]
 print(f"  LOS >= 2 days:              {len(df):>7,}  (removed {n - len(df):,})")
 n = len(df)
 
-# Patients who died within 48h of ICU admission
 # These patients physically cannot stay >7 days — including them adds label noise.
 death_within_48h = (
     df["deathtime"].notna() &
@@ -97,26 +86,11 @@ df = df[~death_within_48h]
 print(f"  excl. death within 48h:     {len(df):>7,}  (removed {n - len(df):,})")
 n = len(df)
 
-# ICU LOS > 90 days
 # Extreme outliers may represent data-quality issues or LTACH transfers.
 df = df[df["los"] <= 90]
 print(f"  LOS <= 90 days:             {len(df):>7,}  (removed {n - len(df):,})")
 n = len(df)
 
-# INACTIVE FILTERS (activate if needed)
-
-# Patients transferred to another acute-care facility on discharge
-# df = df[df["discharge_location"] != "TRANSFER TO OTHER FACILITY"]
-
-# planned surgical admissions (focus on unplanned/emergency only)
-# df = df[df["admission_type"] != "ELECTIVE"]
-
-# specific care units only (unit-specific model)
-# df = df[df["first_careunit"].isin(["Medical Intensive Care Unit (MICU)",
-#                                    "Surgical Intensive Care Unit (SICU)"])]
-
-
-# Create binary label LOS > 7 days
 df["los_gt7"] = (df["los"] > 7).astype(int)
 
 label_counts = df["los_gt7"].value_counts().sort_index()
@@ -125,26 +99,17 @@ print(f"  LOS <= 7 days (0): {label_counts.get(0, 0):,}")
 print(f"  LOS >  7 days (1): {label_counts.get(1, 0):,}")
 print(f"  Positive rate    : {df['los_gt7'].mean()*100:.1f}%")
 
-# Build cohort DataFrame
 cohort_cols = [
-    # Identifiers
     "subject_id", "hadm_id", "stay_id",
 
     # Timestamps (intime safe for splitting; outtime kept for reference only —
     # never use as model feature: outtime - intime = los leaks the label)
     "intime", "outtime",
 
-    # ICU context
     "first_careunit", "los",
-
-    # Patient demographics
     "gender", "age_at_icu", "anchor_year_group",
-
-    # Admission context
     "admission_type", "admission_location", "discharge_location",
     "insurance", "language", "marital_status", "race",
-
-    # Target label
     "los_gt7",
 ]
 

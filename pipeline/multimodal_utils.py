@@ -30,17 +30,17 @@ def get_cxr_feature_groups(static_features: list[str]) -> dict:
     Returns a dict with keys:
         bert_pca, cxr_struct, cxr_all, baseline
     """
-    bert_pca   = [c for c in static_features if c.startswith("bert_pca_")]
+    bert_pca = [c for c in static_features if c.startswith("bert_pca_")]
     cxr_struct = [c for c in CXR_STRUCT_FEATURES if c in static_features]
-    has_cxr    = ["has_cxr"] if "has_cxr" in static_features else []
-    cxr_all    = cxr_struct + bert_pca + has_cxr
-    baseline   = [c for c in static_features if c not in cxr_all]
+    has_cxr = ["has_cxr"] if "has_cxr" in static_features else []
+    cxr_all = cxr_struct + bert_pca + has_cxr
+    baseline = [c for c in static_features if c not in cxr_all]
     return {
-        "bert_pca":   bert_pca,
+        "bert_pca": bert_pca,
         "cxr_struct": cxr_struct,
-        "has_cxr":    has_cxr,
-        "cxr_all":    cxr_all,
-        "baseline":   baseline,
+        "has_cxr": has_cxr,
+        "cxr_all": cxr_all,
+        "baseline": baseline,
     }
 
 
@@ -48,9 +48,9 @@ def get_cxr_feature_groups(static_features: list[str]) -> dict:
 
 class ICUDataset(Dataset):
     def __init__(self, X_static, y, ts, ts_features):
-        self.stay_ids    = X_static["stay_id"].values
-        self.static_arr  = X_static.drop(columns=["stay_id"]).values.astype(np.float32)
-        self.labels      = y.set_index("stay_id").loc[self.stay_ids, "los_gt7"].values.astype(np.float32)
+        self.stay_ids = X_static["stay_id"].values
+        self.static_arr = X_static.drop(columns=["stay_id"]).values.astype(np.float32)
+        self.labels = y.set_index("stay_id").loc[self.stay_ids, "los_gt7"].values.astype(np.float32)
         self.ts_features = ts_features
 
         ts_pivot = (
@@ -103,10 +103,10 @@ class GRUModel(nn.Module):
         )
 
     def forward(self, ts, static, text=None):
-        _, h_n     = self.gru(ts)
-        gru_out    = h_n[-1]
+        _, h_n = self.gru(ts)
+        gru_out = h_n[-1]
         static_out = self.static_branch(static)
-        parts      = [gru_out, static_out]
+        parts = [gru_out, static_out]
         if self.use_text and text is not None:
             parts.append(self.text_branch(text))
         return self.classifier(torch.cat(parts, dim=1)).squeeze(1)
@@ -143,9 +143,9 @@ def load_multimodal_model(checkpoint_path, ts_input_size: int,
     num_layers = max(gru_layer_indices) + 1 if gru_layer_indices else 1
 
     hidden_size = sd["gru.weight_ih_l0"].shape[0] // 3
-    static_dim  = sd["static_branch.0.weight"].shape[0]
-    use_text    = "text_branch.0.weight" in sd
-    text_dim    = sd["text_branch.0.weight"].shape[0] if use_text else 32
+    static_dim = sd["static_branch.0.weight"].shape[0]
+    use_text = "text_branch.0.weight" in sd
+    text_dim = sd["text_branch.0.weight"].shape[0] if use_text else 32
 
     model = GRUModel(
         ts_input_size=ts_input_size,

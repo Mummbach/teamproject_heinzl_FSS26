@@ -28,11 +28,8 @@ Output:  output/X_train.parquet    output/y_train.parquet
 """
 
 import pandas as pd
-import numpy as np
 from config import OUTPUT_DIR
 
-# Imputation strategy
-# "median" | "mean" | "rf"
 IMPUTATION_STRATEGY = "median"
 
 # Missingness flags
@@ -46,8 +43,8 @@ USE_MISSINGNESS_FLAGS = True
 #         Prevents sensor artefacts (e.g. spo2_slope = -147) from dominating SHAP.
 # False — no clipping (original behaviour)
 WINSORIZE_VITALS = True
-WINSORIZE_LOW    = 0.01   # 1st percentile
-WINSORIZE_HIGH   = 0.99   # 99th percentile
+WINSORIZE_LOW    = 0.01
+WINSORIZE_HIGH   = 0.99
 
 # Aggregated vital stats
 # True  — include aggregated vital sign stats(mean, std, slope, etc. per vital over 48h)
@@ -71,7 +68,7 @@ for s in ["train", "val", "test"]:
     print(f"  {s:<6}: {(split_ids['split']==s).sum():,}")
 
 
-#DATA QUALITY CHECKS
+# DATA QUALITY CHECKS
 print("Data quality checks")
 
 dup_stays = cohort["stay_id"].duplicated().sum()
@@ -95,7 +92,6 @@ static = cohort[["stay_id"]].copy()
 # Age: continuous. NaN possible if anchor fields are missing; keep as NaN here —
 static["age"] = cohort["age_at_icu"].values
 
-# Binary: 1 = male, 0 = female.
 static["gender_male"] = (cohort["gender"].fillna("F").values == "M").astype(int)
 
 # Race grouped into 5 clinical categories to avoid sparse columns.
@@ -113,25 +109,21 @@ eth_grouped = eth_raw.map(
 for cat in ["white", "black", "hispanic", "asian", "other"]:
     static[f"eth_{cat}"] = (eth_grouped.values == cat).astype(int)
 
-# Language: 1 = English, 0 = non-English / unknown.
 static["language_english"] = (
     cohort["language"].fillna("Unknown").str.strip().str.lower() == "english"
 ).astype(int)
 
-# Insurance grouped: Medicare, Medicaid, Other.
 ins = cohort["insurance"].fillna("Other").str.lower().str.strip()
 static["ins_medicare"] = ins.str.contains("medicare").astype(int)
 static["ins_medicaid"] = ins.str.contains("medicaid").astype(int)
 static["ins_other"]    = (~ins.str.contains("medicare|medicaid")).astype(int)
 
-# Admission type grouped into 4 categories.
 adm = cohort["admission_type"].fillna("OTHER").str.upper().str.strip()
 static["adm_emergency"]   = adm.isin(["EW EMER.", "DIRECT EMER."]).astype(int)
 static["adm_urgent"]      = (adm == "URGENT").astype(int)
 static["adm_elective"]    = adm.isin(["ELECTIVE", "SURGICAL SAME DAY ADMISSION"]).astype(int)
 static["adm_observation"] = adm.str.contains("OBSERVATION").astype(int)
 
-# Admission location grouped into 5 categories.
 loc = cohort["admission_location"].fillna("UNKNOWN").str.upper().str.strip()
 static["loc_emergency_room"] = (loc == "EMERGENCY ROOM").astype(int)
 static["loc_transfer"]       = loc.str.contains("TRANSFER").astype(int)
@@ -144,14 +136,12 @@ static["loc_other"]          = (
 
 # discharge_location excluded; only known at discharge (future leakage).
 
-# Marital status: 4 binary flags; NaN/unknown → all 0.
 mar = cohort["marital_status"].fillna("UNKNOWN").str.upper().str.strip()
 static["marital_married"]  = mar.str.contains("MARRIED").astype(int)
 static["marital_single"]   = mar.str.contains("SINGLE|NEVER").astype(int)
 static["marital_widowed"]  = mar.str.contains("WIDOWED").astype(int)
 static["marital_divorced"] = mar.str.contains("DIVORCED|SEPARATED").astype(int)
 
-# ICU unit type: 7 binary flags.
 ICU_DUMMIES = {
     "micu":       "Medical Intensive Care Unit (MICU)",
     "sicu":       "Surgical Intensive Care Unit (SICU)",
@@ -165,7 +155,6 @@ icu_type = cohort["first_careunit"].fillna("Other").str.strip()
 for col_suffix, full_name in ICU_DUMMIES.items():
     static[f"icu_{col_suffix}"] = (icu_type == full_name).astype(int)
 
-# Admission era: ordinal encoding of anchor_year_group.
 YEAR_GROUP_ORDER = {
     "2008 - 2010": 0,
     "2011 - 2013": 1,
@@ -255,7 +244,6 @@ if WINSORIZE_VITALS and USE_AGGREGATED_VITALS:
     bounds_df.to_parquet(OUTPUT_DIR / "winsorize_bounds.parquet", index=False)
     print(f"  Saved: output/winsorize_bounds.parquet")
 
-# Identify columns that need imputation (any NaN present in train)
 impute_cols = [
     c for c in all_feature_cols
     if not c.endswith("_missing") and X_train[c].isna().any()
@@ -284,7 +272,6 @@ elif IMPUTATION_STRATEGY == "rf":
     from sklearn.impute import IterativeImputer
     from sklearn.ensemble import RandomForestRegressor
 
-    # RF imputation is slow on large datasets
     imputer = IterativeImputer(
         estimator=RandomForestRegressor(n_estimators=10, random_state=42, n_jobs=-1),
         max_iter=3,
@@ -308,7 +295,6 @@ else:
     all_feature_cols = [c for c in all_feature_cols if not c.endswith("_missing")]
     print(f"  Dropped {len(missing_flag_cols)} _missing flag columns")
 
-# Sanity checks
 for name, X_split in [("train", X_train), ("val", X_val), ("test", X_test)]:
     remaining = X_split[all_feature_cols].isna().sum().sum()
     assert remaining == 0, f"{name}: {remaining} NaN values remain after imputation"
@@ -319,7 +305,6 @@ assert set(X_val["stay_id"]).isdisjoint(set(X_test["stay_id"])),   "val/test ove
 print("\n  No NaN remaining ✓")
 print("  No stay_id overlap between splits ✓")
 
-# Class balance per split
 print("\n  Label distribution:")
 for name, y_split in [("train", y_train), ("val", y_val), ("test", y_test)]:
     pos = y_split["los_gt7"].mean() * 100
@@ -327,7 +312,7 @@ for name, y_split in [("train", y_train), ("val", y_val), ("test", y_test)]:
     print(f"  {name:<6}: {n:>7,} stays  positive rate: {pos:.1f}%")
 
 
-#SAVE
+# SAVE
 print("Saving splits")
 splits = {
     "X_train": X_train, "y_train": y_train,

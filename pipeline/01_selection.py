@@ -21,7 +21,7 @@ Output:     output/cohort.csv  +  output/cohort_stay_ids.txt
 """
 
 import pandas as pd
-from config import HOSP_DIR, ICU_DIR, OUTPUT_DIR
+from config import HOSP_DIR, ICU_DIR, OUTPUT_DIR, ADMISSIONS_PATH, PATIENTS_PATH
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -33,11 +33,11 @@ icustays = pd.read_csv(
     parse_dates=["intime", "outtime"],
 )
 patients = pd.read_csv(
-    HOSP_DIR / "patients.csv.gz",
+    PATIENTS_PATH,
     compression="gzip",
 )
 admissions = pd.read_csv(
-    HOSP_DIR / "admissions.csv.gz",
+    ADMISSIONS_PATH,
     compression="gzip",
     parse_dates=["admittime", "dischtime", "deathtime", "edregtime", "edouttime"],
 )

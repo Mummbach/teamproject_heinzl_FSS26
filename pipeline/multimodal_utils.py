@@ -126,19 +126,36 @@ class SHAPWrapper(nn.Module):
         self.model = model
 
     def forward(self, ts, static):
-        return torch.sigmoid(self.model(ts, static)).unsqueeze(1)
+        text = torch.zeros(ts.shape[0], 1536, device=ts.device) if self.model.use_text else None
+        return torch.sigmoid(self.model(ts, static, text)).unsqueeze(1)
 
 
 def load_multimodal_model(checkpoint_path, ts_input_size: int,
-                          static_input_size: int, device,
-                          use_text: bool = False, text_dim: int = 32) -> GRUModel:
-    """Load a GRUModel checkpoint and set to eval mode."""
+                          static_input_size: int, device) -> GRUModel:
+    """Load a GRUModel checkpoint, inferring architecture from the state dict."""
+    sd = torch.load(checkpoint_path, map_location=device, weights_only=True)
+
+    # Infer num_layers from highest GRU layer index present
+    gru_layer_indices = [
+        int(k.split("_l")[1].split(".")[0])
+        for k in sd if k.startswith("gru.weight_ih_l")
+    ]
+    num_layers = max(gru_layer_indices) + 1 if gru_layer_indices else 1
+
+    hidden_size = sd["gru.weight_ih_l0"].shape[0] // 3
+    static_dim  = sd["static_branch.0.weight"].shape[0]
+    use_text    = "text_branch.0.weight" in sd
+    text_dim    = sd["text_branch.0.weight"].shape[0] if use_text else 32
+
     model = GRUModel(
         ts_input_size=ts_input_size,
         static_input_size=static_input_size,
+        hidden_size=hidden_size,
+        num_layers=num_layers,
+        static_dim=static_dim,
         use_text=use_text,
         text_dim=text_dim,
     ).to(device)
-    model.load_state_dict(torch.load(checkpoint_path, map_location=device, weights_only=True))
+    model.load_state_dict(sd)
     model.eval()
     return model

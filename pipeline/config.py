@@ -10,8 +10,22 @@ from pathlib import Path
 BASE_DIR    = Path(__file__).parent
 DATA_DIR    = BASE_DIR / "data"
 HOSP_DIR    = DATA_DIR / "hosp"
+CORE_DIR    = DATA_DIR / "core"   # PhysioNet: admissions, patients, transfers
 ICU_DIR     = DATA_DIR / "icu"
 OUTPUT_DIR  = BASE_DIR / "output"
+
+# admissions.csv.gz and patients.csv.gz live in core/ on PhysioNet
+# but some distributions (e.g. Mika's zip) put them in hosp/.
+# This helper picks the right location automatically.
+def _resolve(filename: str) -> Path:
+    """Return path to a file that may be in core/ or hosp/."""
+    if (CORE_DIR / filename).exists():
+        return CORE_DIR / filename
+    return HOSP_DIR / filename
+
+ADMISSIONS_PATH = _resolve("admissions.csv.gz")
+PATIENTS_PATH   = _resolve("patients.csv.gz")
+TRANSFERS_PATH  = _resolve("transfers.csv.gz")
 
 # RXCUI → ATC mapping file (download separately if missing)
 # Source: https://github.com/MIT-LCP/mimic-code

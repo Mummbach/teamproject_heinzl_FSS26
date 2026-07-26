@@ -122,7 +122,8 @@ if rec["wrong_reasons"]:
 # is), then the model-internal contribution chart, then CXR corroboration.
 st.markdown("### Explanation")
 st.caption("Patient vs. prototypes (raw clinical values)")
-feats = list(dict.fromkeys(d["feature"] for d in rec["top_contributions"]))[:8]
+feats = list(dict.fromkeys(d["feature"] for d in rec["top_contributions"]
+                           if d["feature"] in rec["patient"]))[:8]
 st.dataframe(pd.DataFrame([{
     "Feature": R.feat_label(f),
     "Patient": rec["patient"][f],

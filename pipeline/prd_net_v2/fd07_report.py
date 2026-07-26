@@ -87,7 +87,7 @@ def fig_contributions(rec):
     xs = [d["contribution"] for d in tc]
     ys = [f"{feat_label(d['feature'])}  (vs {d['prototype']})" for d in tc]
     colors = [LONG_C if x > 0 else SHORT_C for x in xs]
-    text = [f"Δ={d['raw_delta']:+g}" for d in tc]
+    text = [f"Δ={d['raw_delta']:+g}" if "raw_delta" in d else "" for d in tc]
     fig = go.Figure(go.Bar(x=xs, y=ys, orientation="h", marker_color=colors,
                            text=text, textposition="outside", cliponaxis=False))
     fig.update_layout(
@@ -101,7 +101,9 @@ def fig_contributions(rec):
 def fig_prototype_position(rec):
     """Per top-feature: where the patient sits between short (0) and long (1) proto."""
     tc = rec["top_contributions"]
-    feats = list(dict.fromkeys(d["feature"] for d in tc))[:6][::-1]   # unique, keep order
+    # Absolute (hard-filter) features have no prototype position — exclude them.
+    feats = list(dict.fromkeys(d["feature"] for d in tc
+                               if d["feature"] in rec["patient"]))[:6][::-1]   # unique, keep order
     short_x, long_x, pat_x, rows = [], [], [], []
     for f in feats:
         lo, sh, pa = rec["long_prototype"][f], rec["short_prototype"][f], rec["patient"][f]
@@ -207,7 +209,8 @@ def support_html(rec):
 
 def raw_values_html(rec):
     """Patient vs. prototypes in raw clinical units (readable without knowing what a logit is)."""
-    feats = list(dict.fromkeys(d["feature"] for d in rec["top_contributions"]))[:8]
+    feats = list(dict.fromkeys(d["feature"] for d in rec["top_contributions"]
+                               if d["feature"] in rec["patient"]))[:8]
     rows = "".join(
         f"<tr><td>{feat_label(f)}</td><td>{rec['patient'][f]}</td>"
         f"<td>{rec['long_prototype'][f]}</td><td>{rec['short_prototype'][f]}</td></tr>"

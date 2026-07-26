@@ -1,0 +1,283 @@
+# PRD-Net v2 — Feature-Level Contrastive Difference Track
+
+A parallel sub-track to `pipeline/prd_net/`. It reuses the same peer retrieval
+but builds prototypes and deltas in **interpretable feature space** instead of
+embedding space, so attributions map directly onto clinical features.
+
+The existing PRD-Net track (`pipeline/prd_net/01`–`05`) is **untouched** and
+remains the latent-delta baseline for comparison.
+
+## What's different from the latent track
+
+The latent track encodes a patient to a 64-dim hidden vector and forms deltas
+against **peer-embedding** prototypes — distance reasoning that is not
+interpretable per feature. This track instead:
+
+- builds a **positive prototype** = average clinical feature values of the
+  long-stay peers, and a **negative prototype** = same for short-stay peers;
+- feeds the model **signed, per-feature differences** `patient − prototype`
+  against both prototypes (never collapsed to a scalar norm);
+- uses a **linear** model so `weight × delta` is the exact (SHAP) attribution.
+
+The explanation is contrastive and directional: *"predicted long-stay because
+mean GCS is below the short-stay prototype,"* not *"GCS = 6 → long-stay."*
+
+## Feature list and F
+
+**Difference features** (continuous, differenced against the prototypes). Per
+time-series feature we take `AGG_STATS = [mean, last, min, max, slope]` over
+`[0, WINDOW_HOURS)` (`slope` = OLS slope vs hour over non-missing samples), plus
+the continuous static `age` and the CXR-derived flags:
+
+- 12 time-series features: `heart_rate, sbp, dbp, map, resp_rate, spo2,
+  temperature, glucose, gcs_eye, gcs_verbal, gcs_motor, urine_output`
+  × 5 stats = 60, **+ age = 61**.
+- **+ 16 CXR-derived flags** (`USE_CXR_FEATURES=True`, from
+  `01d_extract_radiology_features.py`): `has_cxr_report`, 7 pathology flags
+  (pneumonia, pleural_effusion, pneumothorax, edema, atelectasis, opacity,
+  cardiomegaly), `severity_score`, progression (worsening/improved/stable),
+  device mentions (ventilator/central_line/chest_tube), `abnormality_count`.
+  Stays without a usable report get 0 for every CXR flag. → **F = 77**.
+
+**Absolute features** (`USE_ABSOLUTE_FEATURES=True`, appended UNCHANGED — never
+differenced): the hard-filter one-hots `icd_*` (18), `icu_*` (7), `adm_*` (4) =
+**29** columns. Peers are matched on these, so a *delta* would be ≈0 by
+construction — but the patient's own category still carries baseline-risk signal
+a delta never sees (a CVICU / circulatory stay has a different typical LOS than a
+MICU / general-medicine stay), so they are fed to the model as-is.
+
+- Model input (`DIFF_INPUT="both"`) =
+  `concat([delta_pos, delta_neg, absolute])` = **2F + 29 = 183**.
+
+Still excluded entirely: the other binary indicators (`atc_*`, `eth_*`, `ins_*`,
+`marital_*`, `loc_*`, `gender_male`, `year_group`) — not part of the hard filter
+and with no "X SD above/below the prototype" reading.
+
+Missing cells (feature never measured in the window) are imputed with **train
+medians**, then standardized with **train** `StandardScaler` stats. A raw-unit
+copy is kept for the dashboard; raw deltas are recovered as
+`raw_delta = scaled_delta × scaler.scale_`.
+
+> Note: `X_*.parquet` already contains 48h aggregates, but we re-aggregate from
+> `timeseries.parquet` so `WINDOW_HOURS` is a single switch (48h ↔ 24h); the 48h
+> matrix also cross-checks against those existing columns.
+
+## Design-decision values (defaults)
+
+| | Decision | Value |
+|---|---|---|
+| D1 | Retrieval space | `embedding` (reuse `prd_net_peers.pkl`); `feature` = ablation |
+| D2 | Prototype aggregation | simple **mean** (`USE_PROTOTYPE_WEIGHTING=False`) |
+| D3 | Diff input | `both` = `[delta_pos, delta_neg]` (`pos_only`/`neg_only`/`proto_gap` available) |
+| D4 | Model | `linear` (`mlp` ablation behind a switch) |
+| D5 | Aggregation granularity | summary stats (`AGG_STATS`) |
+
+All switches live in `config_fd.py` and are marked with `# DESIGN DECISION:`
+comments at each choice point.
+
+## Results (test set)
+
+Headline metrics are AUROC and **AUPRC** (23.6% positive imbalance). 48h is the
+primary analysis; 24h is the robustness / comparability check. The numbers below
+are from the **full rebuild from raw MIMIC** (2026-07-26): probe-disconnect
+vitals fix + absolute hard-filter features + CXR flags — see "Full reproduction"
+below.
+
+| window | accuracy | precision | recall | F1 | AUROC | **AUPRC** |
+|--------|---------:|----------:|-------:|---:|------:|----------:|
+| **48h** (primary) | 0.794 | 0.553 | 0.658 | 0.601 | **0.826** | **0.600** |
+| 24h (robustness)  | 0.735 | 0.459 | 0.691 | 0.552 | 0.792 | 0.533 |
+
+Reference — Wu et al. GBDT: AUROC 0.747 / AUPRC 0.536. The 48h linear difference
+model now exceeds the GBDT on **both** AUROC and AUPRC while staying fully
+interpretable (the earlier 0.560 F1 / 0.783 AUROC predates the vitals fix +
+absolute/CXR features). A sklearn `LogisticRegression` fit on the same diff
+vectors matches the torch model (sanity check), and `shap.LinearExplainer`
+reproduces `w·(x − E[x])` exactly (max abs diff 0.0).
+
+## Notes / gotchas
+
+- Peer-cache row indices reference `X_train` order; fd01/fd02 assert the feature
+  matrix is in the same order.
+- **312** training patients have an empty peer side (after the admission-type
+  hard filter added upstream) and are skipped, exactly as in
+  `prd_net/04_prd-train.py`. (The original brief's "~6" predates that filter.)
+- Files are loaded via `importlib` where the name starts with a digit / contains
+  a hyphen, matching the existing track.
+- All artifacts are window-tagged (`_48h` / `_24h`) so both runs coexist.
+
+## Full reproduction from raw MIMIC
+
+Rebuilds **every** artifact — cohort, features, GRU, latent PRD, and this track —
+from the raw MIMIC-IV / MIMIC-CXR tables. ~15 min end-to-end on a laptop CPU
+(dominated by the ~3.5 GB `chartevents.csv.gz` parse and GRU training; **no GPU
+is used** — the GRU trains on CPU even where MPS/CUDA exists).
+
+**1 · Environment** (Python 3.13)
+
+```bash
+python3 -m venv venv && source venv/bin/activate
+pip install -r pipeline/requirements.txt
+```
+
+**2 · Data layout** — place the raw files under `pipeline/data/`:
+
+```
+pipeline/data/
+  hosp/                             MIMIC-IV hosp  (admissions, patients, diagnoses_icd, prescriptions, …)
+  icu/                              MIMIC-IV icu   (icustays, chartevents.csv.gz, outputevents, …)
+  RXCUI2atc4.csv                    NDC → ATC mapping
+  mimic-cxr-2.0.0-metadata.csv.gz
+  mimic-cxr-reports/                per-subject radiology report .txt files (p10/, p11/, …)
+```
+
+> **Gotcha:** `01b_align_cxr_reports.py` expects the CXR metadata *inside*
+> `mimic-cxr-reports/`. If yours sits directly in `data/`, symlink it once:
+> ```bash
+> ln -s ../mimic-cxr-2.0.0-metadata.csv.gz \
+>   pipeline/data/mimic-cxr-reports/mimic-cxr-2.0.0-metadata.csv.gz
+> ```
+
+**3 · Upstream: cohort → features → GRU → latent PRD** (run from `pipeline/`)
+
+```bash
+cd pipeline
+python3 01_selection.py                     # cohort.csv  (ICU cohort, LOS>7 label)
+python3 01b_align_cxr_reports.py            # cohort_with_cxr.csv
+python3 01c_extract_cxr_sections.py         # cxr_sections.csv       (FINDINGS/IMPRESSION)
+python3 01d_extract_radiology_features.py   # cxr_structured_features.csv (16 CXR flags)
+python3 02_features.py                      # timeseries.parquet, X_*, icd/atc/labels  (RANGE_FILTERS vitals fix applied here)
+python3 03_splitting.py                     # split_ids.parquet      (70/15/15, seeded)
+python3 04_preprocessing.py                 # X_*/y_*                 (median imputation)
+python3 06_normalize.py                     # X_*_scaled + scaler_params
+python3 07_model_gru.py                     # best_gru_model.pt       (GRU, 30 epochs, CPU)
+python3 prd_net/01_extract-embeddings.py    # prd_net_embeddings.pkl
+python3 prd_net/02_peer-groups.py           # prd_net_peers.pkl
+python3 prd_net/04_prd-train.py             # prd_net/checkpoints/prd_net_v1.pt (+ threshold)
+python3 prd_net/05_prd-inference.py         # (optional) latent-PRD test metrics
+# optional EDA / cross-val: 05_analysis.py, 08_crossval.py
+```
+
+**4 · This track — both windows** (run from `pipeline/prd_net_v2/`)
+
+```bash
+cd prd_net_v2
+# 48h (primary): set WINDOW_HOURS = 48 in config_fd.py, then
+python3 fd01_feature-matrix.py && python3 fd02_feature-prototypes.py \
+  && python3 fd04_diff-train.py && python3 fd06_dashboard-export.py
+python3 fd07_report.py                       # -> exports/fd_dashboard_48h.html
+# 24h (robustness): set WINDOW_HOURS = 24, re-run the same four + fd07
+```
+
+`fd05_diff-explain.py` is an optional stdout sanity check (`w·Δ == SHAP`).
+`fd03_diff-model.py` is a module (run directly only for its smoke test).
+For the interactive dashboard: `streamlit run fd07_dashboard.py` (window is a
+sidebar toggle, no config edit needed).
+
+**Notes**
+- **Determinism:** splits and training use fixed seeds; the GRU
+  `DataLoader(shuffle=True)` on CPU is close but not bit-identical run to run, so
+  downstream metrics can wobble by ~0.01.
+- **Vitals fix:** `config.py` `RANGE_FILTERS` reject probe-disconnect zeros
+  (SpO₂/BP = 0, etc.); this only takes effect when `02_features.py` re-parses the
+  raw data — a v2-only re-run reuses the existing `timeseries.parquet`.
+- **24h upstream:** GRU / latent-PRD only see the first 48h; genuinely comparable
+  24h GRU/old-PRD rows stay "n/a" until the upstream scripts are
+  window-parameterized (see below). The v2 track's own 24h artifacts *are* produced.
+
+## Re-run just this track (upstream already present)
+
+If `timeseries.parquet`, `X_*`, `best_gru_model.pt` and the peer caches
+(`prd_net_embeddings.pkl`, `prd_net_peers.pkl`) already exist, step 4 above is all
+you need — `fd01 → fd02 → fd04 → fd06 → fd07` per window. Artifacts are
+window-tagged (`_48h`/`_24h`), so the two windows never overwrite each other.
+
+## Files
+
+| file | role |
+|------|------|
+| `config_fd.py` | hyperparameters, centralized column groups, window-tagged paths, `feature_names()` |
+| `fd01_feature-matrix.py` | aggregate `timeseries.parquet` → F=77 (+ CXR flags, + 29 absolute one-hots), impute, scale, persist raw+scaled+scaler |
+| `fd02_feature-prototypes.py` | feature-space prototypes: train via peer cache, val/test via filtered K-NN |
+| `fd03_diff-model.py` | diff assembly, `LinearDiffModel` (+ MLP), sklearn LogisticRegression reference |
+| `fd04_diff-train.py` | train, val-F1 early stop, threshold tune, test metrics (incl. AUPRC) |
+| `fd05_diff-explain.py` | `w·delta` == SHAP check; global + per-patient raw-unit explanations |
+| `fd06_dashboard-export.py` | per-patient records + global summary (JSON + flat parquet) |
+| `fd08_model-compare.py` | per-patient test predictions + metrics for GRU / old PRD / new PRD (48h+24h) |
+| `fd07_report.py` | standalone interactive Plotly HTML dashboard (curated cases, no install) |
+| `fd07_dashboard.py` | full Streamlit dashboard over all patients (needs `pip install streamlit`) |
+
+### Model comparison (`fd08`)
+
+`fd08_model-compare.py` evaluates every model on the same fixed test set and
+writes `exports/fd_model_comparison.json` (metrics) + `fd_model_predictions.parquet`
+(per-patient probabilities for the ROC/PR overlays and the per-patient cross-model
+panel). Both dashboards show a "Model comparison" view (metrics table, grouped
+bars, ROC + PR overlays). 24h exists only for the new feature-diff track; GRU,
+old PRD and (their) baselines are 48h-only. Test-set results:
+
+| model | window | F1 | AUROC | AUPRC |
+|-------|:------:|---:|------:|------:|
+| GRU (baseline) | 48h | 0.611 | 0.848 | 0.644 |
+| Old PRD (latent delta) | 48h | 0.621 | 0.835 | 0.607 |
+| New PRD (feature-diff) | 48h | 0.601 | 0.826 | 0.600 |
+| New PRD (feature-diff) | 24h | 0.552 | 0.792 | 0.533 |
+
+(Full-rebuild numbers, 2026-07-26. GRU from `07_model_gru.py`, old PRD from
+`prd_net/05_prd-inference.py`, new PRD from `fd_metrics_{w}h.json` — the same test
+set and thresholds `fd08` uses.) After the rebuild the three models sit within
+~0.02 AUROC of each other, so the feature-diff track now buys an exactly
+attributable, contrastive, per-feature explanation at almost no accuracy cost.
+
+> **fd08 note:** `fd08_model-compare.py` predates the absolute-features change
+> (`d48fe19`) and rebuilds the new-PRD model without the 29 absolute inputs, so it
+> currently raises a shape mismatch on the 183-dim checkpoint. It needs the same
+> `load_absolute_block(...) → assemble_diff(..., absolute=...)` step `fd04`/`fd06`
+> use before its JSON can be regenerated.
+
+#### Window-parameterized comparison & comparable 24h artifacts
+
+`fd08` is a MODEL × WINDOW registry. Each (model, window) entry resolves to
+window-tagged artifacts and is only evaluated if they exist; otherwise it is
+recorded `available: false` and shown as **n/a (not trained)** in both dashboards.
+The 48h artifacts are the original unsuffixed files; the 24h slots light up
+automatically once these window-tagged files are produced:
+
+| model | 48h artifact | 24h artifact (to produce) |
+|-------|--------------|---------------------------|
+| GRU | `output/best_gru_model.pt` + `X_*_scaled.parquet` + `timeseries.parquet` | `best_gru_model_24h.pt` + `X_*_scaled_24h.parquet` + `timeseries_24h.parquet` |
+| Old PRD | `prd_net/checkpoints/prd_net_v1.pt` + `prd_net_embeddings.pkl` | `prd_net_v1_24h.pt` (+ `_threshold`) + `prd_net_embeddings_24h.pkl` |
+| New PRD | `fd_diff_v1_48h.pt` + `fd_prototypes_test_48h.pkl` | already present (`*_24h`) |
+
+**Producing comparable 24h artifacts (fair retrain).** A genuinely comparable
+24h GRU/old-PRD must see only the first 24h, which means re-aggregating the
+*static* features too (not just truncating the time series). Recipe:
+
+1. Re-run upstream feature engineering with a 24h window (`OBS_WINDOW=24` in
+   `config.py`, write to `*_24h` outputs) → `X_*_24h`, `timeseries_24h.parquet`.
+2. Retrain the GRU on the 24h inputs → `best_gru_model_24h.pt`.
+3. Rebuild embeddings + peers from the 24h GRU → `prd_net_embeddings_24h.pkl`,
+   `prd_net_peers_24h.pkl`.
+4. Retrain old PRD on the 24h embeddings → `prd_net_v1_24h.pt` (+ threshold).
+5. Re-run `fd08_model-compare.py` — the 24h GRU/old-PRD rows fill in automatically.
+
+Steps 1–4 require window-parameterizing the upstream scripts (so the 48h
+artifacts are not overwritten); that change is pending confirmation.
+
+## Dashboard
+
+Two visualizations on top of the fd06 exports (data-only; they load no model):
+
+- **`fd07_report.py`** — a self-contained `exports/fd_dashboard_{w}.html` that opens
+  in any browser (uses plotly, already installed; no server). It shows the global
+  overview (metrics, global feature importance, distance-vs-difference) and a
+  dropdown over a curated set of illustrative patients with: prediction vs. truth,
+  per-feature contributions to the logit (red → long-stay, blue → short-stay), the
+  patient's position *between* the two prototypes per feature, and the 3 most-similar
+  / 3 long-stay / 3 short-stay peers with their outcomes. For **misclassified**
+  patients it also shows a heuristic "why this prediction is probably wrong" box
+  (empty-filter fallback, low peer support, single-feature dominance, borderline
+  probability, or near-tie), plus the per-class peer-support count.
+- **`fd07_dashboard.py`** — the full interactive Streamlit app over all ~4 600 test
+  patients (filters by correct/wrong/false-neg/false-pos, patient picker). Same
+  components as the static report. Run with `streamlit run fd07_dashboard.py`.

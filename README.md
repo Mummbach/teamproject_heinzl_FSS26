@@ -116,7 +116,7 @@ deactivate
 ### 4️⃣ Install all required dependencies
 
 ```bash
-pip install -r requirements.txt
+pip install -r pipeline/requirements.txt
 ```
 
 ### 5️⃣ Register the environment as a Jupyter kernel
@@ -161,6 +161,28 @@ git add requirements.txt
 git commit -m "Update dependencies"
 git push
 ```
+
+---
+
+## 🔬 Reproducing the PRD-Net results
+
+The implemented pipeline — cohort → features → GRU → PRD-Net → the feature-level
+contrastive **difference track** — and a full **step-by-step reproduction from the
+raw MIMIC tables** live in
+**[`pipeline/prd_net_v2/README.md`](pipeline/prd_net_v2/README.md)** (see *"Full
+reproduction from raw MIMIC"*). Dependencies are pinned in
+[`pipeline/requirements.txt`](pipeline/requirements.txt); the GRU trains on CPU
+(no GPU required), ~15 min end-to-end.
+
+Headline test-set results (length-of-stay > 7 days, 23.6 % positive; full rebuild
+2026-07-26):
+
+| model | F1 | AUROC | AUPRC |
+|---|--:|--:|--:|
+| GRU (baseline, 48h) | 0.611 | 0.848 | 0.644 |
+| PRD-Net latent (48h) | 0.621 | 0.835 | 0.607 |
+| PRD-Net feature-diff (48h) | 0.601 | 0.826 | 0.600 |
+| PRD-Net feature-diff (24h) | 0.552 | 0.792 | 0.533 |
 
 ---
 

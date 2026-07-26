@@ -1,0 +1,129 @@
+"""
+PRD-Net — Step 3: Peer Retrieval Derivation Network
+=====================================================
+Takes a patient embedding (from the GRU) and two prototype vectors
+(positive peer centroid, negative peer centroid) and learns to score
+how similar the patient is to each group.
+
+Architecture (to be implemented):
+  encode(x)           — projects the raw embedding into a learned space
+  forward(x, pos, neg) — scores similarity to positive vs. negative prototype
+"""
+
+import torch
+import torch.nn as nn
+
+
+class PRDNet(nn.Module):
+    """
+    Peer Retrieval Derivation Network.
+
+    Args:
+        input_dim  : dimensionality of the input patient embedding (128)
+        hidden_dim : size of the internal projection layer (64, matches baseline)
+    """
+
+    def __init__(self, input_dim: int, hidden_dim: int):
+        super().__init__()
+
+        # Encoder: MLP projection from input_dim → hidden_dim.
+        # A GRU was used initially but is inappropriate here: GRUs process
+        # sequences, and the input is a single flat vector (seq_len=1), so the
+        # GRU reduces to an expensive linear projection with no temporal benefit.
+        # An MLP is the correct choice for projecting a fixed-size embedding.
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+        )
+
+        # Head: takes the concatenation of two hidden_dim vectors (patient vs prototype)
+        # and outputs a single logit — positive = closer to positive peers
+        self.head = nn.Sequential(
+            nn.Linear(2 * hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(hidden_dim, 1),
+        )
+
+    def encode(self, x):
+        """
+        Project a patient embedding into the learned representation space.
+
+        Args:
+            x : (batch, input_dim) — flat patient embeddings
+
+        Returns:
+            (batch, hidden_dim) — encoded representation
+        """
+        return self.encoder(x)  # (batch, hidden_dim)
+
+    def forward(self, x, pos_proto, neg_proto):
+        """
+        Score the patient against positive and negative peer prototypes.
+
+        Encodes the patient, computes how far it sits from each peer group
+        centroid, then passes the combined delta through the classifier head.
+
+        Args:
+            x         : (batch, input_dim) — target patient embeddings
+            pos_proto : (batch, hidden_dim) — mean embedding of positive peers
+            neg_proto : (batch, hidden_dim) — mean embedding of negative peers
+
+        Returns:
+            logit     : (batch,) — raw score; positive = closer to pos peers
+            delta_pos : (batch, hidden_dim) — distance vector to positive proto
+            delta_neg : (batch, hidden_dim) — distance vector to negative proto
+        """
+        h = self.encode(x)                        # (batch, hidden_dim)
+
+        delta_pos = h - pos_proto                 # how far from positive peers
+        delta_neg = h - neg_proto                 # how far from negative peers
+
+        combined = torch.cat([delta_pos, delta_neg], dim=-1)  # (batch, 2*hidden_dim)
+        logit = self.head(combined).squeeze(-1)   # (batch,)
+
+        return logit, delta_pos, delta_neg
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SMOKE TEST
+# ══════════════════════════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    BATCH      = 8
+    INPUT_DIM  = 128
+    HIDDEN_DIM = 64
+
+    model = PRDNet(input_dim=INPUT_DIM, hidden_dim=HIDDEN_DIM)
+    model.eval()
+
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"PRDNet initialised")
+    print(f"  input_dim  : {INPUT_DIM}")
+    print(f"  hidden_dim : {HIDDEN_DIM}")
+    print(f"  Parameters : {total_params:,}")
+
+    # Fake inputs matching expected shapes
+    x         = torch.randn(BATCH, INPUT_DIM)
+    pos_proto = torch.randn(BATCH, HIDDEN_DIM)
+    neg_proto = torch.randn(BATCH, HIDDEN_DIM)
+
+    print(f"\nRunning forward pass (batch_size={BATCH})...")
+    logit, delta_pos, delta_neg = model(x, pos_proto, neg_proto)
+
+    print(f"\nOutput shapes:")
+    print(f"  logit     : {tuple(logit.shape)}  — expected ({BATCH},)")
+    print(f"  delta_pos : {tuple(delta_pos.shape)}  — expected ({BATCH}, {HIDDEN_DIM})")
+    print(f"  delta_neg : {tuple(delta_neg.shape)}  — expected ({BATCH}, {HIDDEN_DIM})")
+
+    print(f"\nLogit stats (random weights — values not meaningful yet):")
+    print(f"  min  : {logit.min().item():.4f}")
+    print(f"  max  : {logit.max().item():.4f}")
+    print(f"  mean : {logit.mean().item():.4f}")
+
+    assert logit.shape     == (BATCH,),            f"logit shape wrong: {logit.shape}"
+    assert delta_pos.shape == (BATCH, HIDDEN_DIM), f"delta_pos shape wrong: {delta_pos.shape}"
+    assert delta_neg.shape == (BATCH, HIDDEN_DIM), f"delta_neg shape wrong: {delta_neg.shape}"
+
+    print("\nAll shape assertions passed.")

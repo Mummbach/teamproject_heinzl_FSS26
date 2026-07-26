@@ -1,6 +1,21 @@
-pandas
-numpy
-matplotlib
-pyarrow>=14.0
-scikit-learn
-torch>=2.0
+# PRD-Net pipeline — dependencies pinned to the versions the reported results
+# were produced with (Python 3.13, macOS/CPU; MPS is not used, GRU trains on CPU).
+#
+#   python3 -m venv venv
+#   source venv/bin/activate            # Windows: venv\Scripts\activate
+#   pip install -r pipeline/requirements.txt
+#
+# Core data / modelling
+numpy==1.26.4
+pandas==3.0.1
+scipy==1.17.1
+scikit-learn==1.8.0
+pyarrow==23.0.1
+torch==2.10.0
+tqdm==4.67.3
+
+# Visualisation / explanation
+matplotlib==3.10.8      # 05_analysis EDA plots (optional stage)
+plotly==6.6.0           # fd07_report.py standalone HTML dashboards
+shap==0.49.1            # fd05_diff-explain.py  (w·Δ == SHAP sanity check)
+streamlit==1.58.0       # fd07_dashboard.py     (interactive dashboard)

@@ -19,3 +19,8 @@ matplotlib==3.10.8      # 05_analysis EDA plots (optional stage)
 plotly==6.6.0           # fd07_report.py standalone HTML dashboards
 shap==0.49.1            # fd05_diff-explain.py  (w·Δ == SHAP sanity check)
 streamlit==1.58.0       # fd07_dashboard.py     (interactive dashboard)
+
+# Optional — only needed by specific track scripts, NOT part of the validated
+# core run (unpinned: not installed in the reference environment):
+optuna                  # 08_hyperparameter_search.py (GRU hyperparameter search)
+transformers            # 02b_cxr_features.py / 11_extract_bioclinicalbert_embeddings.py (BioClinicalBERT)

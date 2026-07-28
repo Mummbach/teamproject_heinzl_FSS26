@@ -59,13 +59,21 @@ URINE_ITEMIDS = [226559, 226560, 226561, 226584, 226563, 226564,
 
 # ── Physiological range filters ───────────────────────────────────────────────
 # Values outside these ranges are treated as measurement errors and dropped.
+# Lower bounds for heart_rate/sbp/dbp/map/spo2 are raised above 0 (previously
+# 0 for all five) because a literal 0 is a probe-disconnect/lead-off artifact,
+# not a real low reading — no living monitored patient has 0% SpO2 or 0 mmHg
+# BP. Confirmed in prd_net_v2 test data: a small number of stays (~0.1-0.2%)
+# were getting a 0 averaged into mean/min/last, producing a clinically
+# impossible aggregate (e.g. spo2_mean=8) that could dominate a downstream
+# model's prediction. Thresholds below are conservative floors for a real,
+# sustained reading (still permissive of genuine severe/critical values):
 RANGE_FILTERS = {
-    "heart_rate":   (0,  300),
-    "sbp":          (0,  300),
-    "dbp":          (0,  200),
-    "map":          (0,  250),
+    "heart_rate":   (20, 300),
+    "sbp":          (50, 300),
+    "dbp":          (20, 200),
+    "map":          (30, 250),
     "resp_rate":    (0,   80),
-    "spo2":         (0,  100),
+    "spo2":         (50, 100),
     "temperature":  (25,  45),   # Celsius after conversion
     "glucose":      (0, 1000),
     "gcs_eye":      (1,    4),

@@ -1,0 +1,4 @@
+# Generated artifacts — reproducible from the fd* scripts, never committed
+# (mirrors the repo policy for pipeline/output/)
+exports/
+checkpoints/

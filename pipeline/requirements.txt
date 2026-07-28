@@ -23,4 +23,4 @@ streamlit==1.58.0       # fd07_dashboard.py     (interactive dashboard)
 # Optional — only needed by specific track scripts, NOT part of the validated
 # core run (unpinned: not installed in the reference environment):
 optuna                  # 08_hyperparameter_search.py (GRU hyperparameter search)
-transformers            # 02b_cxr_features.py / 11_extract_bioclinicalbert_embeddings.py (BioClinicalBERT)
+transformers            # 02b_cxr_features.py / 01e_extract_bioclinicalbert_embeddings.py (BioClinicalBERT)

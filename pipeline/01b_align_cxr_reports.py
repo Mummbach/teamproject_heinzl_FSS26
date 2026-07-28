@@ -5,6 +5,7 @@ Align MIMIC-CXR radiology reports with the ICU cohort from 01_selection.py.
 
 Run AFTER:  01_selection.py
 Run BEFORE: 01c_extract_cxr_sections.py
+            01e_extract_bioclinicalbert_embeddings.py  (alternative CXR representation)
 
 Ported from feature/time-series-monitoring-intensity-analysis (09_align_cxr_reports.py).
 Renamed 01b_ since it only depends on 01_selection.py's cohort.csv, not on

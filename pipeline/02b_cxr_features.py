@@ -40,8 +40,8 @@ from tqdm import tqdm
 from config import DATA_DIR, OUTPUT_DIR, OBS_WINDOW
 
 # Paths
-CXR_DIR       = DATA_DIR / "files"
-METADATA_PATH = DATA_DIR / "mimic-cxr-2.0.0-metadata.csv"
+CXR_DIR       = DATA_DIR / "mimic-cxr-reports"
+METADATA_PATH = CXR_DIR / "mimic-cxr-2.0.0-metadata.csv.gz"
 COHORT_PATH   = OUTPUT_DIR / "cohort.csv"
 OUTPUT_PATH   = OUTPUT_DIR / "cxr_bert_embeddings.parquet"
 

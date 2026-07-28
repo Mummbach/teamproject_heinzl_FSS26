@@ -4,8 +4,7 @@ Extract BioClinicalBERT embeddings from MIMIC-CXR reports
 aligned with ICU cohort. 
 
 ========================================
-Run AFTER:  10_extract_cxr_sections.py
-Run BEFORE: 12_build_multimodal_dataset.py
+Run AFTER:  01b_align_cxr_reports.py
 
 Input:      output/cohort_with_cxr.csv
 

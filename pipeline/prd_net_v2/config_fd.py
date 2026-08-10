@@ -4,10 +4,11 @@ PRD-Net v2 (feature-level contrastive difference track) — central config
 Imported by all fd* files. Mirrors pipeline/prd_net/config_prd.py conventions
 but adds the switches specific to the feature-difference track.
 
-This track is a *parallel* sub-track to pipeline/prd_net/. It reuses the same
-peer retrieval (prd_net_embeddings.pkl / prd_net_peers.pkl) but builds the
-prototypes and deltas in interpretable FEATURE space rather than embedding space.
-Nothing in pipeline/prd_net/ (01-05) is touched.
+This track is a *parallel* sub-track to pipeline/prd_net/. By default (D1 =
+"feature") it finds its own peers directly in interpretable FEATURE space and
+never reads pipeline/prd_net/'s output caches at all. It can optionally reuse
+v1's embedding-space peer retrieval (D1 = "embedding") for comparison, but
+nothing in pipeline/prd_net/ (01-05) is ever touched or modified by this track.
 """
 
 from pathlib import Path
@@ -68,10 +69,16 @@ K_PEERS       = 20
 AGE_TOLERANCE = 5
 
 # ── Design-decision switches ──────────────────────────────────────────────────
-# DESIGN DECISION D1 — retrieval space: reuse the embedding-space peers from
-# prd_net_peers.pkl (default). "feature" re-retrieves in scaled feature space
-# (a fully-interpretable-pipeline ablation).
-RETRIEVAL_SPACE = "embedding"          # "embedding" | "feature"
+# DESIGN DECISION D1 — retrieval space: "feature" (default) re-retrieves the
+# K=20 nearest peers directly in this track's own scaled feature space (hard
+# filter + age tolerance, same as before) — no dependency on v1 at all. Tested
+# 2026-08-05 against "embedding" (reuse prd_net_peers.pkl / v1's GRU-embedding
+# K-NN) on the 24h window: feature space matched or slightly beat embedding
+# space on every headline metric (AUROC 0.801 vs 0.791, AUPRC 0.556 vs 0.532,
+# torch model) while leaving 0 training patients with an empty peer side
+# (vs. some under the cached-peer path). "embedding" is kept only as a
+# same-peers-as-v1 comparison point, not because it performs better.
+RETRIEVAL_SPACE = "feature"          # "embedding" | "feature"
 
 # DESIGN DECISION D2 — prototype aggregation: simple mean of peer feature
 # vectors (default, reads as "the average peer"). Distance-weighted (embedding
@@ -130,7 +137,7 @@ def absolute_feature_names() -> list[str]:
     return list(ABSOLUTE_FEATURES) if USE_ABSOLUTE_FEATURES else []
 
 
-# ── Reused caches from the existing track (peer retrieval only) ───────────────
+# ── v1 caches, only read when RETRIEVAL_SPACE == "embedding" (see D1) ─────────
 EMBEDDING_CACHE_PATH = OUTPUT_DIR / "prd_net_embeddings.pkl"
 PEER_CACHE_PATH      = OUTPUT_DIR / "prd_net_peers.pkl"
 

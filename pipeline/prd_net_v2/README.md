@@ -1,26 +1,63 @@
 # PRD-Net v2 — Feature-Level Contrastive Difference Track
 
-A parallel sub-track to `pipeline/prd_net/`. It reuses the same peer retrieval
-but builds prototypes and deltas in **interpretable feature space** instead of
-embedding space, so attributions map directly onto clinical features.
+A parallel sub-track to `pipeline/prd_net/` ("v1"). By default it is fully
+standalone — it finds its own nearest-peer patients and builds prototypes and
+deltas in **interpretable feature space** instead of v1's embedding space, so
+attributions map directly onto clinical features. It can optionally reuse v1's
+peer retrieval instead (see "Retrieval space" below), but never touches or
+modifies v1 itself.
 
-The existing PRD-Net track (`pipeline/prd_net/01`–`05`) is **untouched** and
-remains the latent-delta baseline for comparison.
+## v1, in short (what this track is compared against)
 
-## What's different from the latent track
+`pipeline/prd_net/` (v1, `01`–`05b`) is the original, untouched latent-delta
+model this track is benchmarked against:
 
-The latent track encodes a patient to a 64-dim hidden vector and forms deltas
-against **peer-embedding** prototypes — distance reasoning that is not
-interpretable per feature. This track instead:
+1. `01_extract-embeddings.py` — a GRU encodes each patient's time series +
+   statics into a 128-dim learned embedding.
+2. `02_peer-groups.py` — for each patient, finds the K=20 nearest *other*
+   patients by L2 distance in that embedding space (same age band, split by
+   outcome) → `prd_net_peers.pkl`.
+3. `04_prd-train.py` — averages the peers' embeddings into `pos_proto` /
+   `neg_proto`, then trains a small nonlinear net on `h − proto` to a logit.
+
+v1's predictions are a black box: the "explanation" for any prediction is an
+abstract 128-dim distance, not a clinical feature. Getting a feature-level
+explanation for a v1 prediction requires a separate, bolted-on tool
+(`explainability/shap_prdnet.py`) that *approximates* feature importance by
+sampling/backpropagating through the whole network after the fact — v1 itself
+has no built-in notion of "which feature mattered."
+
+## What's different from v1
+
+This track instead:
 
 - builds a **positive prototype** = average clinical feature values of the
   long-stay peers, and a **negative prototype** = same for short-stay peers;
 - feeds the model **signed, per-feature differences** `patient − prototype`
   against both prototypes (never collapsed to a scalar norm);
-- uses a **linear** model so `weight × delta` is the exact (SHAP) attribution.
+- uses a **linear** model so `weight × delta` is the exact (SHAP) attribution —
+  no sampling, no approximation, no separate explainability step required.
 
 The explanation is contrastive and directional: *"predicted long-stay because
 mean GCS is below the short-stay prototype,"* not *"GCS = 6 → long-stay."*
+
+## Retrieval space: two modes (D1)
+
+Independent of the model change above, this track can find peers two ways:
+
+| | **`feature`** (default) | **`embedding`** |
+|---|---|---|
+| Peers found by | plain L2 distance in this track's own scaled clinical feature vector (same hard filter: ICD chapter + ICU type + admission type + age tolerance) | L2 distance in v1's learned GRU embedding — reuses `prd_net_peers.pkl` / `prd_net_embeddings.pkl` as-is |
+| Depends on v1 running first? | **No** — fully standalone | Yes — v1's `01`/`02` must have produced those caches |
+| Why it exists | the standalone, self-contained mode | isolates *one* variable at a time in the v1-vs-v2 comparison: same peers as v1, only the prototype/model change |
+
+Tested 2026-08-05 (24h window): `feature` matched or slightly **beat**
+`embedding` on every headline test metric (torch model: AUROC 0.801 vs 0.791,
+AUPRC 0.556 vs 0.532; sklearn logreg: AUROC 0.808 vs 0.789, AUPRC 0.570 vs
+0.525) and left 0 training patients with an empty peer side, vs. some skipped
+under the cached-peer path. So `embedding` mode isn't kept because it performs
+better — only as a controlled comparison point back to v1's exact peer set.
+Switch via `RETRIEVAL_SPACE` in `config_fd.py`.
 
 ## Feature list and F
 
@@ -66,7 +103,7 @@ copy is kept for the dashboard; raw deltas are recovered as
 
 | | Decision | Value |
 |---|---|---|
-| D1 | Retrieval space | `embedding` (reuse `prd_net_peers.pkl`); `feature` = ablation |
+| D1 | Retrieval space | `feature` (standalone K-NN, no v1 dependency); `embedding` = reuse `prd_net_peers.pkl` for a same-peers-as-v1 comparison — see "Retrieval space" above |
 | D2 | Prototype aggregation | simple **mean** (`USE_PROTOTYPE_WEIGHTING=False`) |
 | D3 | Diff input | `both` = `[delta_pos, delta_neg]` (`pos_only`/`neg_only`/`proto_gap` available) |
 | D4 | Model | `linear` (`mlp` ablation behind a switch) |
@@ -76,6 +113,12 @@ All switches live in `config_fd.py` and are marked with `# DESIGN DECISION:`
 comments at each choice point.
 
 ## Results (test set)
+
+> **Note:** the numbers below were produced with `RETRIEVAL_SPACE = "embedding"`
+> (the *previous* default). They have not yet been regenerated under the new
+> `feature` default — see "Retrieval space" above for the 24h head-to-head that
+> exists so far. Treat this table as the `embedding`-mode reference until it's
+> rerun.
 
 Headline metrics are AUROC and **AUPRC** (23.6% positive imbalance). 48h is the
 primary analysis; 24h is the robustness / comparability check. The numbers below
@@ -187,10 +230,12 @@ sidebar toggle, no config edit needed).
 
 ## Re-run just this track (upstream already present)
 
-If `timeseries.parquet`, `X_*`, `best_gru_model.pt` and the peer caches
-(`prd_net_embeddings.pkl`, `prd_net_peers.pkl`) already exist, step 4 above is all
-you need — `fd01 → fd02 → fd04 → fd06 → fd07` per window. Artifacts are
-window-tagged (`_48h`/`_24h`), so the two windows never overwrite each other.
+If `timeseries.parquet` and `X_*` already exist, step 4 above is all you need —
+`fd01 → fd02 → fd04 → fd06 → fd07` per window. Artifacts are window-tagged
+(`_48h`/`_24h`), so the two windows never overwrite each other.
+`best_gru_model.pt` and the peer caches (`prd_net_embeddings.pkl`,
+`prd_net_peers.pkl`) are **not** required under the default `feature` retrieval
+space — only needed if `RETRIEVAL_SPACE = "embedding"` in `config_fd.py`.
 
 ## Files
 

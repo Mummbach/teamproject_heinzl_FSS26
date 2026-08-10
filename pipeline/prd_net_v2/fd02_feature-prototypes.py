@@ -166,8 +166,10 @@ def build_prototypes_filtered(
     q_age = query_df["age"].values
     q_row_of = {int(s): i for i, s in enumerate(query_df["stay_id"].values)}
 
-    all_train_emb = np.stack([emb_cache[int(s)] for s in all_train_ids])
-    train_repr = all_train_emb if space == "embedding" else M_train
+    if space == "embedding":
+        train_repr = np.stack([emb_cache[int(s)] for s in all_train_ids])
+    else:
+        train_repr = M_train
 
     pos_global = np.where(train_labels == 1)[0]
     neg_global = np.where(train_labels == 0)[0]
@@ -247,9 +249,13 @@ if __name__ == "__main__":
           f"weighting={C.USE_PROTOTYPE_WEIGHTING})")
 
     # ── Load caches + scaled matrices + filter columns ────────────────────────
+    # emb_cache/peer_cache are v1 (pipeline/prd_net) artifacts, only needed when
+    # RETRIEVAL_SPACE == "embedding"; "feature" mode never touches v1 at all.
     print("Loading caches and matrices...")
-    with open(C.EMBEDDING_CACHE_PATH, "rb") as f: emb_cache = pickle.load(f)
-    with open(C.PEER_CACHE_PATH, "rb")      as f: peer_cache = pickle.load(f)
+    emb_cache = peer_cache = None
+    if C.RETRIEVAL_SPACE == "embedding":
+        with open(C.EMBEDDING_CACHE_PATH, "rb") as f: emb_cache = pickle.load(f)
+        with open(C.PEER_CACHE_PATH, "rb")      as f: peer_cache = pickle.load(f)
 
     def load_scaled(split):
         m = pd.read_parquet(C.feature_matrix_path(split, scaled=True)).set_index("stay_id")

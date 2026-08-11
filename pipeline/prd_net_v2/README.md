@@ -329,8 +329,15 @@ Two visualizations on top of the fd06 exports (data-only; they load no model):
 
 Both carry a **Top features** control (5 / 10 / 15) driving the global importance
 chart, the raw-value table, the contribution chart and the prototype-position chart.
-It can only ever show what fd06 exported: `TOP_K` there is the ceiling, so raising the
-levels past 15 means re-running fd06.
+The count is in *distinct features*, which is not the same as contributions: a diff
+feature enters the model twice (Δpos and Δneg) and can rank highly on both, so one
+feature may own two bars in the contribution chart. fd06's `TOP_FEATURES` is the
+ceiling — it collects contributions until that many distinct features are covered, so
+offering a level above 15 means re-running fd06.
+
+The raw-value table and the prototype-position chart show only the *measured*
+features of that set; categorical drivers (`icd_*`/`icu_*`/`adm_*`) have no prototype
+to sit between and are called out beneath the panel instead of silently missing.
 
 In the Streamlit app each peer is a **button** (`stay_id · outcome · LOS`) — clicking
 one shows that peer's demographics, actual LOS in days and observed outcome, plus a
@@ -342,6 +349,5 @@ patients, so the export names them without their values; the app pulls those fro
 `fd07_report.load_peer_source()`. No prediction is shown for a peer — the model was
 fitted on them, so a probability would be meaningless.
 
-Some patients' leading drivers are all categorical (`icd_*`/`icu_*`/`adm_*`), which
-have no prototype to sit between. Those panels say so instead of rendering empty;
-raising the feature count brings clinical measurements into view.
+Where *every* leading driver is categorical, those two panels say so instead of
+rendering empty; raising the feature count brings clinical measurements into view.

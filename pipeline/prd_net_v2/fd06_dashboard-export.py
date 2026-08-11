@@ -40,9 +40,17 @@ _m = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_m)
 assemble_diff, input_dim, build_model, input_feature_labels, load_absolute_block = (
     _m.assemble_diff, _m.input_dim, _m.build_model, _m.input_feature_labels, _m.load_absolute_block)
 
-TOP_K = 15     # entries per ranked list in the export; the dashboards slice this
-               # down to the level the user picked (5 / 10 / 15), so it is the
-               # ceiling of what they can show, not what they show by default.
+TOP_K = 15     # entries in the largest_dev_* lists. Those rank whole features,
+               # so one entry is one feature and no de-duplication applies.
+
+# Distinct FEATURES the contribution list must cover — not entries. A diff
+# feature enters the model twice (Δpos and Δneg) and can rank highly on both,
+# so "the 15 strongest contributions" is not "15 features": at TOP_K=15 entries
+# that fell short of 15 distinct features for 2252 of 4593 test patients, and
+# the dashboards then rendered 13 rows under a "top 15" heading. Collecting
+# until the 15th distinct feature appears costs a handful of extra entries and
+# lets the dashboards mean what their labels say.
+TOP_FEATURES = 15
 
 # diagnose()'s dominance ratio is a *heuristic* calibrated against a 0.55
 # threshold on the top-5 drivers. It shares no meaning with TOP_K beyond having
@@ -240,7 +248,7 @@ if __name__ == "__main__":
         pred = int(preds[i])
         fc = filter_criteria(int(sid))
         c_order = np.argsort(np.abs(contribs[i]))[::-1]
-        top_contrib = []
+        top_contrib, seen_feats = [], []
         for j in c_order:
             side, feat = labels_in[j].split(":")
             if feat in CXR_SET:      # surfaced separately via cxr_support, not here
@@ -256,17 +264,17 @@ if __name__ == "__main__":
                     "raw_value": 1.0 if raw_val > 0.5 else 0.0,  # binary one-hot
                     "contribution": round(float(contribs[i, j]), 4),
                 })
-                if len(top_contrib) == TOP_K:
-                    break
-                continue
-            fi = feats.index(feat)
-            top_contrib.append({
-                "input": labels_in[j], "feature": feat,
-                "prototype": "long-stay" if side == "Δpos" else "short-stay",
-                "raw_delta": round(float(Xte[i, j] * scaler.scale_[fi]), 3),
-                "contribution": round(float(contribs[i, j]), 4),
-            })
-            if len(top_contrib) == TOP_K:
+            else:
+                fi = feats.index(feat)
+                top_contrib.append({
+                    "input": labels_in[j], "feature": feat,
+                    "prototype": "long-stay" if side == "Δpos" else "short-stay",
+                    "raw_delta": round(float(Xte[i, j] * scaler.scale_[fi]), 3),
+                    "contribution": round(float(contribs[i, j]), 4),
+                })
+            if feat not in seen_feats:
+                seen_feats.append(feat)
+            if len(seen_feats) == TOP_FEATURES:
                 break
         records.append({
             "stay_id": int(sid),

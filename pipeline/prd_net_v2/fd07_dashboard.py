@@ -163,6 +163,9 @@ if feats:
         "Long-stay proto": rec["long_prototype"][f],
         "Short-stay proto": rec["short_prototype"][f],
     } for f in feats]), hide_index=True, width='stretch')
+    note = R.categorical_note(rec, top_n)
+    if note:
+        st.caption(note)
 else:
     st.info(R.NO_POSITIONABLE_NOTE.format(n=top_n))
 st.plotly_chart(R.fig_contributions(rec, top_n), width='stretch')
@@ -217,5 +220,8 @@ if active:
 st.markdown("### Delta / Difference")
 if R.positionable_features(rec, top_n):
     st.plotly_chart(R.fig_prototype_position(rec, top_n), width='stretch')
+    note = R.categorical_note(rec, top_n)
+    if note:
+        st.caption(note)
 else:
     st.info(R.NO_POSITIONABLE_NOTE.format(n=top_n))

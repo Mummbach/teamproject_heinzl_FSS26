@@ -121,15 +121,16 @@ def _bar_height(n_rows, base):
 
 
 def fig_contributions(rec, n=DEFAULT_TOP_N):
-    tc = rec["top_contributions"][:n][::-1]
+    tc = contributions_for(rec, n)[::-1]
     xs = [d["contribution"] for d in tc]
     ys = [f"{feat_label(d['feature'])}  (vs {d['prototype']})" for d in tc]
     colors = [LONG_C if x > 0 else SHORT_C for x in xs]
     text = [f"Δ={d['raw_delta']:+g}" if "raw_delta" in d else "" for d in tc]
     fig = go.Figure(go.Bar(x=xs, y=ys, orientation="h", marker_color=colors,
                            text=text, textposition="outside", cliponaxis=False))
+    extra = f", {len(tc)} contributions" if len(tc) != n else ""
     fig.update_layout(
-        title=f"Why: top {n} per-feature contributions to the logit  "
+        title=f"Why: top {n} features{extra} — contribution to the logit  "
               "(red → long stay, blue → short stay)",
         height=_bar_height(len(tc), 360), margin=dict(l=230, r=60, t=50, b=40),
         xaxis_title="Contribution w·Δ (logit)")
@@ -182,6 +183,20 @@ NO_POSITIONABLE_NOTE = ("All of this patient's top {n} drivers are categorical "
                         "comparison. Raise the feature count to see clinical measurements.")
 
 
+def categorical_note(rec, n):
+    """Why a prototype panel shows fewer rows than the chosen feature count.
+
+    Categorical drivers have no prototype to sit between, so they drop out of
+    these two panels only. Saying so beats letting the row count silently
+    disagree with the label above it.
+    """
+    dropped = len(top_features(rec, n)) - len(positionable_features(rec, n))
+    if not dropped:
+        return ""
+    return (f"{dropped} of the top {n} are categorical (diagnosis / ICU / admission "
+            "type) and have no prototype comparison — not shown here.")
+
+
 # ── HTML assembly ─────────────────────────────────────────────────────────────
 
 def _lab(v): return "Long Stay" if v == 1 else "Short Stay"
@@ -231,14 +246,25 @@ def peer_group_outcome_line(rec):
 
 
 def top_features(rec, n):
-    """The n highest-|contribution| features, de-duplicated, order preserved.
+    """The n strongest distinct features, strongest first.
 
-    A feature can appear twice in top_contributions (once vs each prototype);
-    the ranked list is sliced to n *before* de-duplication so "top 5" means the
-    top 5 drivers the contribution chart shows, not the first 5 distinct names
-    found anywhere in the export.
+    De-duplication happens BEFORE the slice: a diff feature enters the model
+    twice (Δpos and Δneg) and may rank highly on both, so slicing the entry list
+    first would yield fewer than n names — "top 15" showing 13 rows. fd06
+    exports enough entries to cover TOP_FEATURES distinct features.
     """
-    return list(dict.fromkeys(d["feature"] for d in rec["top_contributions"][:n]))
+    return list(dict.fromkeys(d["feature"] for d in rec["top_contributions"]))[:n]
+
+
+def contributions_for(rec, n):
+    """Every exported contribution belonging to the top-n features.
+
+    One feature can own two bars (one per prototype). Keeping both is what makes
+    the chart agree with the tables on which features are shown, at the cost of
+    a bar count that is n or a little more.
+    """
+    keep = set(top_features(rec, n))
+    return [d for d in rec["top_contributions"] if d["feature"] in keep]
 
 
 def peer_info_line(stay_id, src):
@@ -341,9 +367,11 @@ def raw_values_html(rec, n=DEFAULT_TOP_N):
         f"<tr><td>{feat_label(f)}</td><td>{rec['patient'][f]}</td>"
         f"<td>{rec['long_prototype'][f]}</td><td>{rec['short_prototype'][f]}</td></tr>"
         for f in feats)
+    note = categorical_note(rec, n)
     return ("<div class='rawvals'><b>Patient vs. prototypes (raw clinical values)</b>"
             "<table><tr><th>Feature</th><th>Patient</th><th>Long-stay proto</th>"
-            f"<th>Short-stay proto</th></tr>{rows}</table></div>")
+            f"<th>Short-stay proto</th></tr>{rows}</table>"
+            + (f"<p class='support'>{note}</p>" if note else "") + "</div>")
 
 
 def cxr_support_html(rec):

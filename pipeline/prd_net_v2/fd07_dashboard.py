@@ -61,62 +61,12 @@ PEER_TABLES = (
 )
 
 
-def peer_df(peers, src):
-    """Peer rows with the observed LOS alongside the binary outcome — the
-    continuous value is what makes 'Long Stay' concrete, and cohort.csv has it."""
-    return pd.DataFrame([{
-        "stay_id": p["stay_id"],
-        "Outcome": lab(p["true_label"]),
-        "LOS (days)": round(float(src["cohort"].loc[p["stay_id"], "los"]), 1),
-    } for p in peers])
-
-
-def peer_table_key(field, window, stay_id):
-    """Widget identity for one peer table.
-
-    Embedding window+stay_id resets the selection whenever the index patient
-    changes — otherwise a peer from the previous patient would stay highlighted
-    against a patient it has nothing to do with. The generation counter is how
-    one table clears the other two: bumping it hands Streamlit a new widget,
-    which starts with an empty selection.
-    """
-    gen = st.session_state.get(f"peergen_{field}", 0)
-    return f"peer_{field}_{window}_{stay_id}_{gen}"
-
-
-def pick_active_peer(chosen, previous):
-    """Which reported selection is the click the user just made.
-
-    Streamlit keeps each table's selection independently, so once a second table
-    is clicked two of them report a row. The one that is *not* what we recorded
-    last run is the new click. Pure so it can be tested without a Streamlit
-    session; the state mutation lives in resolve_peer_selection.
-    """
-    if not chosen:
-        return None
-    if len(chosen) == 1:
-        return chosen[0]
-    return next((c for c in chosen if c != previous), chosen[0])
-
-
-def resolve_peer_selection(selections):
-    """Resolve the three tables down to one active peer, clearing the others.
-
-    Clearing is done by bumping a table's generation counter, which changes its
-    widget key: Streamlit then builds a fresh table with no selection. That
-    needs a rerun to take effect, so this returns only once a single table is
-    left reporting.
-    """
-    chosen = [(field, rows[0]) for field, rows in selections.items() if rows]
-    active = pick_active_peer(chosen, st.session_state.get("peer_active"))
-    st.session_state["peer_active"] = active
-    if len(chosen) > 1:
-        for field, _ in chosen:
-            if field != active[0]:
-                st.session_state[f"peergen_{field}"] = (
-                    st.session_state.get(f"peergen_{field}", 0) + 1)
-        st.rerun()
-    return active
+def peer_button_label(peer, src):
+    """'35302525 · Short Stay · 2.1d' — the id stays first so the button reads
+    as the patient, with the observed outcome and the concrete stay length that
+    makes 'Long Stay' mean something."""
+    los = float(src["cohort"].loc[peer["stay_id"], "los"])
+    return f"{peer['stay_id']} · {lab(peer['true_label'])} · {los:.1f}d"
 
 
 # ── Sidebar: window, filter, patient ──────────────────────────────────────────
@@ -157,6 +107,13 @@ default_idx = stay_ids.index(prev_stay_id) if prev_stay_id in stay_ids else 0
 sel = st.sidebar.selectbox("Patient", labels, index=default_idx)
 rec = options[sel]
 st.session_state["selected_stay_id"] = rec["stay_id"]
+
+# A peer belongs to the patient it was picked under. Drop the selection when
+# either the patient or the window changes, otherwise the comparison below would
+# show a peer of the previously selected patient.
+if st.session_state.get("peer_owner") != (window, rec["stay_id"]):
+    st.session_state["peer_owner"] = (window, rec["stay_id"])
+    st.session_state["peer_active"] = None
 
 top_n = st.sidebar.radio("Top features", R.TOP_N_LEVELS, horizontal=True,
                          help="How many of the highest-contribution features to show. "
@@ -229,17 +186,24 @@ lf = " (global fallback)" if s["long_fallback"] else ""
 sf = " (global fallback)" if s["short_fallback"] else ""
 st.caption(f"Peer support (hard filter): {s['n_long_filtered']} long-stay{lf} · "
            f"{s['n_short_filtered']} short-stay{sf}")
-st.caption("Select a row to compare that patient against this one.")
-selections = {}
+st.caption("Click a patient to compare them against this one.")
+
+# Buttons rather than a selectable dataframe: st.dataframe only registers a
+# selection when its checkbox column is clicked, never the id cell itself, which
+# is the thing a reader actually aims at. Buttons also make the click a discrete
+# event, so there is no cross-table selection state to arbitrate.
+active = st.session_state.get("peer_active")
 for col, (field, title) in zip(st.columns(3), PEER_TABLES):
     col.markdown(f"**{title}**")
-    event = col.dataframe(
-        peer_df(rec[field], peers), hide_index=True,
-        on_select="rerun", selection_mode="single-row",
-        key=peer_table_key(field, window, rec["stay_id"]))
-    selections[field] = event.selection.rows
+    for row, peer in enumerate(rec[field]):
+        if col.button(peer_button_label(peer, peers),
+                      key=f"peer_{field}_{row}_{window}_{rec['stay_id']}",
+                      width="stretch",
+                      type="primary" if active == (field, row) else "secondary"):
+            active = (field, row)
+            st.session_state["peer_active"] = active
+            st.rerun()   # repaint so the clicked button shows as selected
 
-active = resolve_peer_selection(selections)
 if active:
     field, row = active
     peer_id = rec[field][row]["stay_id"]

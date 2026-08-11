@@ -332,9 +332,11 @@ chart, the raw-value table, the contribution chart and the prototype-position ch
 It can only ever show what fd06 exported: `TOP_K` there is the ceiling, so raising the
 levels past 15 means re-running fd06.
 
-In the Streamlit app the three peer tables are **selectable** — picking a row shows
-that peer's demographics, actual LOS in days and observed outcome, plus a
-feature-by-feature comparison against the patient on screen. Peers are training
+In the Streamlit app each peer is a **button** (`stay_id · outcome · LOS`) — clicking
+one shows that peer's demographics, actual LOS in days and observed outcome, plus a
+feature-by-feature comparison against the patient on screen. Buttons rather than a
+selectable table because `st.dataframe` registers a selection only from its checkbox
+column, never from the id cell a reader actually aims at. Peers are training
 patients, so the export names them without their values; the app pulls those from
 `fd_feature_matrix_train_raw_{w}h.parquet`, `cohort.csv` and `y_train.parquet` via
 `fd07_report.load_peer_source()`. No prediction is shown for a peer — the model was

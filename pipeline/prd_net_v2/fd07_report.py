@@ -263,12 +263,22 @@ def peer_info_line(stay_id, src):
     return " · ".join(parts)
 
 
+def _num(v):
+    """Compact fixed-precision text: 5.0 -> '5', 21.437 -> '21.437'."""
+    return f"{round(float(v), 3):g}"
+
+
 def peer_comparison_rows(rec, stay_id, src, n):
     """Index patient vs. one peer over the patient's top-n features.
 
     Absolute one-hot categories are reported as membership on both sides rather
     than a signed delta: the difference between two 0/1 category flags is a
     match-or-not, and printing '-1.0' for it would read as a clinical quantity.
+
+    Every cell is text. The value columns necessarily mix measurements with
+    those yes/no categories, and a mixed object column fails Arrow conversion on
+    the way to the browser — so the formatting happens here rather than leaving
+    pandas to infer a dtype it cannot honour.
     """
     peer = src["features"].loc[stay_id]
     abs_raw = {d["feature"]: d.get("raw_value") for d in rec["top_contributions"]
@@ -285,9 +295,9 @@ def peer_comparison_rows(rec, stay_id, src, n):
         else:
             pat_val = float(rec["patient"][f])
             rows.append({"Feature": feat_label(f),
-                         "This patient": round(pat_val, 3),
-                         "Peer": round(peer_val, 3),
-                         "Difference": f"{pat_val - peer_val:+.3f}"})
+                         "This patient": _num(pat_val),
+                         "Peer": _num(peer_val),
+                         "Difference": f"{round(pat_val - peer_val, 3):+g}"})
     return rows
 
 

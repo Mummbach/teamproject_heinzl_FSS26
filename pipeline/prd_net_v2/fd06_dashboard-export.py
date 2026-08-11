@@ -40,7 +40,15 @@ _m = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_m)
 assemble_diff, input_dim, build_model, input_feature_labels, load_absolute_block = (
     _m.assemble_diff, _m.input_dim, _m.build_model, _m.input_feature_labels, _m.load_absolute_block)
 
-TOP_K = 5      # entries per ranked list in the export
+TOP_K = 15     # entries per ranked list in the export; the dashboards slice this
+               # down to the level the user picked (5 / 10 / 15), so it is the
+               # ceiling of what they can show, not what they show by default.
+
+# diagnose()'s dominance ratio is a *heuristic* calibrated against a 0.55
+# threshold on the top-5 drivers. It shares no meaning with TOP_K beyond having
+# once been the same number — widening the export would otherwise shift the
+# ratio for every patient and silently rewrite the wrong_reasons texts.
+DOMINANCE_K = 5
 
 
 def load_bundle(split):
@@ -191,8 +199,8 @@ if __name__ == "__main__":
         ci = contribs[i]
         top_j = int(np.argmax(np.abs(ci)))
         top_feat = labels_in[top_j].split(":")[1]
-        topk = np.sort(np.abs(ci))[::-1][:TOP_K]
-        dominance = float(topk[0] / (topk.sum() + 1e-9))     # share among the shown drivers
+        topk = np.sort(np.abs(ci))[::-1][:DOMINANCE_K]
+        dominance = float(topk[0] / (topk.sum() + 1e-9))     # share among the leading drivers
         pos_sum, neg_sum = float(ci[ci > 0].sum()), float(-ci[ci < 0].sum())
         pred = int(preds[i])
         supporting, opposing = (pos_sum, neg_sum) if pred == 1 else (neg_sum, pos_sum)

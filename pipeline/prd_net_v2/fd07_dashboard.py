@@ -1,8 +1,12 @@
 """
 PRD-Net v2 — fd07: Interactive Dashboard (Streamlit)
 =====================================================
-The full interactive dashboard over ALL test patients. Reads only the fd06
-exports and reuses the figure builders from fd07_report.py.
+The full interactive dashboard over ALL test patients. Reads the fd06 exports
+and reuses the figure builders from fd07_report.py.
+
+Peers are training patients and the export names them without their values, so
+selecting one additionally pulls the train feature matrix, cohort.csv and
+y_train.parquet via fd07_report.load_peer_source().
 
 Requires streamlit (not in the base env):
     pip install streamlit
@@ -40,12 +44,79 @@ def load(window):
     return R.load(window)
 
 
+@st.cache_data
+def load_peers(window):
+    return R.load_peer_source(window)
+
+
 def lab(v):
     return "Long Stay" if v == 1 else "Short Stay"
 
 
-def peer_df(peers):
-    return pd.DataFrame([{"stay_id": p["stay_id"], "Outcome": lab(p["true_label"])} for p in peers])
+# The three exported peer lists, in display order.
+PEER_TABLES = (
+    ("top_similar_peers", "3 most similar patients"),
+    ("top_long_peers",    "3 most similar long-stay"),
+    ("top_short_peers",   "3 most similar short-stay"),
+)
+
+
+def peer_df(peers, src):
+    """Peer rows with the observed LOS alongside the binary outcome — the
+    continuous value is what makes 'Long Stay' concrete, and cohort.csv has it."""
+    return pd.DataFrame([{
+        "stay_id": p["stay_id"],
+        "Outcome": lab(p["true_label"]),
+        "LOS (days)": round(float(src["cohort"].loc[p["stay_id"], "los"]), 1),
+    } for p in peers])
+
+
+def peer_table_key(field, window, stay_id):
+    """Widget identity for one peer table.
+
+    Embedding window+stay_id resets the selection whenever the index patient
+    changes — otherwise a peer from the previous patient would stay highlighted
+    against a patient it has nothing to do with. The generation counter is how
+    one table clears the other two: bumping it hands Streamlit a new widget,
+    which starts with an empty selection.
+    """
+    gen = st.session_state.get(f"peergen_{field}", 0)
+    return f"peer_{field}_{window}_{stay_id}_{gen}"
+
+
+def pick_active_peer(chosen, previous):
+    """Which reported selection is the click the user just made.
+
+    Streamlit keeps each table's selection independently, so once a second table
+    is clicked two of them report a row. The one that is *not* what we recorded
+    last run is the new click. Pure so it can be tested without a Streamlit
+    session; the state mutation lives in resolve_peer_selection.
+    """
+    if not chosen:
+        return None
+    if len(chosen) == 1:
+        return chosen[0]
+    return next((c for c in chosen if c != previous), chosen[0])
+
+
+def resolve_peer_selection(selections):
+    """Resolve the three tables down to one active peer, clearing the others.
+
+    Clearing is done by bumping a table's generation counter, which changes its
+    widget key: Streamlit then builds a fresh table with no selection. That
+    needs a rerun to take effect, so this returns only once a single table is
+    left reporting.
+    """
+    chosen = [(field, rows[0]) for field, rows in selections.items() if rows]
+    active = pick_active_peer(chosen, st.session_state.get("peer_active"))
+    st.session_state["peer_active"] = active
+    if len(chosen) > 1:
+        for field, _ in chosen:
+            if field != active[0]:
+                st.session_state[f"peergen_{field}"] = (
+                    st.session_state.get(f"peergen_{field}", 0) + 1)
+        st.rerun()
+    return active
 
 
 # ── Sidebar: window, filter, patient ──────────────────────────────────────────
@@ -87,6 +158,11 @@ sel = st.sidebar.selectbox("Patient", labels, index=default_idx)
 rec = options[sel]
 st.session_state["selected_stay_id"] = rec["stay_id"]
 
+top_n = st.sidebar.radio("Top features", R.TOP_N_LEVELS, horizontal=True,
+                         help="How many of the highest-contribution features to show. "
+                              "Capped by fd06's TOP_K at export time.")
+peers = load_peers(window)
+
 # ── Global overview ───────────────────────────────────────────────────────────
 st.title(f"Feature Difference Dashboard ({window}h)")
 with st.expander("Global overview (test)", expanded=False):
@@ -97,7 +173,7 @@ with st.expander("Global overview (test)", expanded=False):
     st.info(f"Distance view (‖Δpos‖<‖Δneg‖): F1 = {glob['distance_view_f1']:.3f}  ·  "
             f"difference model: F1 = {glob['difference_view_f1']:.3f}. "
             "Only the difference view names the responsible features.")
-    st.plotly_chart(R.fig_importance(glob), use_container_width=True)
+    st.plotly_chart(R.fig_importance(glob, top=top_n), width='stretch')
 
 # ── Per-patient view: Patient -> Prediction -> Explanation -> Peer Group -> Delta ──
 
@@ -122,15 +198,17 @@ if rec["wrong_reasons"]:
 # is), then the model-internal contribution chart, then CXR corroboration.
 st.markdown("### Explanation")
 st.caption("Patient vs. prototypes (raw clinical values)")
-feats = list(dict.fromkeys(d["feature"] for d in rec["top_contributions"]
-                           if d["feature"] in rec["patient"]))[:8]
-st.dataframe(pd.DataFrame([{
-    "Feature": R.feat_label(f),
-    "Patient": rec["patient"][f],
-    "Long-stay proto": rec["long_prototype"][f],
-    "Short-stay proto": rec["short_prototype"][f],
-} for f in feats]), hide_index=True, use_container_width=True)
-st.plotly_chart(R.fig_contributions(rec), use_container_width=True)
+feats = R.positionable_features(rec, top_n)
+if feats:
+    st.dataframe(pd.DataFrame([{
+        "Feature": R.feat_label(f),
+        "Patient": rec["patient"][f],
+        "Long-stay proto": rec["long_prototype"][f],
+        "Short-stay proto": rec["short_prototype"][f],
+    } for f in feats]), hide_index=True, width='stretch')
+else:
+    st.info(R.NO_POSITIONABLE_NOTE.format(n=top_n))
+st.plotly_chart(R.fig_contributions(rec, top_n), width='stretch')
 cs = rec["cxr_support"]
 if cs["has_report"]:
     if cs["findings"]:
@@ -151,11 +229,29 @@ lf = " (global fallback)" if s["long_fallback"] else ""
 sf = " (global fallback)" if s["short_fallback"] else ""
 st.caption(f"Peer support (hard filter): {s['n_long_filtered']} long-stay{lf} · "
            f"{s['n_short_filtered']} short-stay{sf}")
-p1, p2, p3 = st.columns(3)
-p1.markdown("**3 most similar patients**");   p1.dataframe(peer_df(rec["top_similar_peers"]), hide_index=True)
-p2.markdown("**3 most similar long-stay**");  p2.dataframe(peer_df(rec["top_long_peers"]), hide_index=True)
-p3.markdown("**3 most similar short-stay**"); p3.dataframe(peer_df(rec["top_short_peers"]), hide_index=True)
+st.caption("Select a row to compare that patient against this one.")
+selections = {}
+for col, (field, title) in zip(st.columns(3), PEER_TABLES):
+    col.markdown(f"**{title}**")
+    event = col.dataframe(
+        peer_df(rec[field], peers), hide_index=True,
+        on_select="rerun", selection_mode="single-row",
+        key=peer_table_key(field, window, rec["stay_id"]))
+    selections[field] = event.selection.rows
+
+active = resolve_peer_selection(selections)
+if active:
+    field, row = active
+    peer_id = rec[field][row]["stay_id"]
+    st.markdown(f"#### Peer {peer_id} vs. this patient")
+    st.write(R.peer_info_line(peer_id, peers))
+    st.dataframe(pd.DataFrame(R.peer_comparison_rows(rec, peer_id, peers, top_n)),
+                 hide_index=True, width='stretch')
+    st.caption("Peers are training patients, so their stay length is observed, not predicted.")
 
 # 5. Delta / Difference — where the patient sits between the two prototypes
 st.markdown("### Delta / Difference")
-st.plotly_chart(R.fig_prototype_position(rec), use_container_width=True)
+if R.positionable_features(rec, top_n):
+    st.plotly_chart(R.fig_prototype_position(rec, top_n), width='stretch')
+else:
+    st.info(R.NO_POSITIONABLE_NOTE.format(n=top_n))

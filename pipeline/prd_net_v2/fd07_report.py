@@ -24,12 +24,23 @@ import json
 import sys
 from pathlib import Path
 
+import pandas as pd
 import plotly.graph_objects as go
 
 sys.path.append(str(Path(__file__).parent))
 import config_fd as C
 
 LONG_C, SHORT_C, PAT_C = "#d62728", "#1f77b4", "#111111"   # red / blue / black
+
+# How many top features the dashboards can show. fd06 exports TOP_K entries per
+# record, which is the ceiling; these are the levels the user can pick between.
+TOP_N_LEVELS = (5, 10, 15)
+DEFAULT_TOP_N = TOP_N_LEVELS[0]
+
+# icd_*/icu_*/adm_* one-hots. They ride along in top_contributions as
+# `prototype == "own category"` and, unlike the 77 diff features, have no entry
+# in rec["patient"] and no prototype to sit between.
+ABS_FEATURES = frozenset(C.absolute_feature_names())
 
 # Display-only relabeling for feature names that read as misleading/unclear to
 # a clinician. Underlying column names (config_fd.CXR_FEATURES / feature_matrix
@@ -58,6 +69,27 @@ def load(window):
     return records, glob
 
 
+def load_peer_source(window):
+    """Feature values, demographics and observed outcome for TRAIN patients.
+
+    The peers fd06 exports are training patients (see fd06's peer_objs) and
+    carry only {stay_id, true_label} — enough to name them, not enough to show
+    what they looked like. Their values live in the train feature matrix, which
+    holds all 106 features (77 diff + 29 absolute), so it is the only feature
+    source needed here; cohort.csv adds demographics and the continuous LOS the
+    binary los_gt7 label throws away.
+
+    Returned frames are indexed by stay_id. Loaded whole: the matrix is ~3.6 MB.
+    """
+    features = (pd.read_parquet(C.feature_matrix_path("train", scaled=False, window=window))
+                .set_index("stay_id"))
+    cohort = (pd.read_csv(C.OUTPUT_DIR / "cohort.csv",
+                          usecols=["stay_id", "gender", "first_careunit", "admission_type", "los"])
+              .set_index("stay_id"))
+    outcome = pd.read_parquet(C.OUTPUT_DIR / "y_train.parquet").set_index("stay_id")["los_gt7"]
+    return {"features": features, "cohort": cohort, "outcome": outcome}
+
+
 def curated(records, n_each=4):
     """Pick illustrative cases: confident-correct, false-neg, false-pos."""
     def grp(t, p): return [r for r in records if r["true_label"] == t and r["pred_label"] == p]
@@ -76,14 +108,20 @@ def fig_importance(glob, top=15):
         x=[d["importance"] for d in items], y=[feat_label(d["feature"]) for d in items],
         orientation="h", marker_color="#555"))
     fig.update_layout(
-        title="Global feature importance (mean |contribution|, Δpos+Δneg summed)",
-        height=460, margin=dict(l=160, r=20, t=50, b=40),
+        title=f"Global feature importance — top {top} "
+              "(mean |contribution|, Δpos+Δneg summed)",
+        height=_bar_height(len(items), 320), margin=dict(l=160, r=20, t=50, b=40),
         xaxis_title="mean |contribution| (logit)")
     return fig
 
 
-def fig_contributions(rec):
-    tc = rec["top_contributions"][::-1]
+def _bar_height(n_rows, base):
+    """Keep the per-bar band readable as the list grows past the original 5."""
+    return max(base, 110 + 32 * n_rows)
+
+
+def fig_contributions(rec, n=DEFAULT_TOP_N):
+    tc = rec["top_contributions"][:n][::-1]
     xs = [d["contribution"] for d in tc]
     ys = [f"{feat_label(d['feature'])}  (vs {d['prototype']})" for d in tc]
     colors = [LONG_C if x > 0 else SHORT_C for x in xs]
@@ -91,19 +129,27 @@ def fig_contributions(rec):
     fig = go.Figure(go.Bar(x=xs, y=ys, orientation="h", marker_color=colors,
                            text=text, textposition="outside", cliponaxis=False))
     fig.update_layout(
-        title="Why: per-feature contribution to the logit  (red → long stay, blue → short stay)",
-        height=360, margin=dict(l=230, r=60, t=50, b=40),
+        title=f"Why: top {n} per-feature contributions to the logit  "
+              "(red → long stay, blue → short stay)",
+        height=_bar_height(len(tc), 360), margin=dict(l=230, r=60, t=50, b=40),
         xaxis_title="Contribution w·Δ (logit)")
     fig.add_vline(x=0, line_color="#999")
     return fig
 
 
-def fig_prototype_position(rec):
+def positionable_features(rec, n):
+    """Of the top-n features, those that actually have a prototype position.
+
+    Absolute (hard-filter) categories have none, so they drop out here. The
+    slice to n happens first: the chart answers "of your top-n drivers, where
+    do you sit", not "find me n features that happen to be positionable".
+    """
+    return [f for f in top_features(rec, n) if f in rec["patient"]]
+
+
+def fig_prototype_position(rec, n=DEFAULT_TOP_N):
     """Per top-feature: where the patient sits between short (0) and long (1) proto."""
-    tc = rec["top_contributions"]
-    # Absolute (hard-filter) features have no prototype position — exclude them.
-    feats = list(dict.fromkeys(d["feature"] for d in tc
-                               if d["feature"] in rec["patient"]))[:6][::-1]   # unique, keep order
+    feats = positionable_features(rec, n)[::-1]
     short_x, long_x, pat_x, rows = [], [], [], []
     for f in feats:
         lo, sh, pa = rec["long_prototype"][f], rec["short_prototype"][f], rec["patient"][f]
@@ -122,10 +168,18 @@ def fig_prototype_position(rec):
     fig.add_vline(x=1, line_dash="dot", line_color=LONG_C)
     fig.update_layout(
         title="Patient position between prototypes (0 = short stay, 1 = long stay; clamped to ±0.5)",
-        height=320, margin=dict(l=180, r=30, t=50, b=40),
+        height=_bar_height(len(rows), 320), margin=dict(l=180, r=30, t=50, b=40),
         xaxis=dict(title="normalized: 0 = short-stay prototype, 1 = long-stay prototype",
                    range=[-0.6, 1.6]))
     return fig
+
+
+# Shown instead of an empty chart/table when every one of the top-n drivers is
+# an absolute category — real for some patients, and an empty panel reads as a
+# rendering bug rather than a property of the case.
+NO_POSITIONABLE_NOTE = ("All of this patient's top {n} drivers are categorical "
+                        "(diagnosis / ICU / admission type), which have no prototype "
+                        "comparison. Raise the feature count to see clinical measurements.")
 
 
 # ── HTML assembly ─────────────────────────────────────────────────────────────
@@ -176,6 +230,67 @@ def peer_group_outcome_line(rec):
             f"{pg['pct_long_stay']:.0f}% long-stay")
 
 
+def top_features(rec, n):
+    """The n highest-|contribution| features, de-duplicated, order preserved.
+
+    A feature can appear twice in top_contributions (once vs each prototype);
+    the ranked list is sliced to n *before* de-duplication so "top 5" means the
+    top 5 drivers the contribution chart shows, not the first 5 distinct names
+    found anywhere in the export.
+    """
+    return list(dict.fromkeys(d["feature"] for d in rec["top_contributions"][:n]))
+
+
+def peer_info_line(stay_id, src):
+    """Peer counterpart to patient_info_line, plus what actually happened.
+
+    Peers are training patients, so their outcome is observed rather than
+    predicted — showing a probability here would be meaningless (the model was
+    fitted on them) and is deliberately omitted.
+    """
+    row = src["cohort"].loc[stay_id]
+    age = src["features"].loc[stay_id].get("age")
+    parts = []
+    if age is not None:
+        parts.append(f"Age {age:.0f}")
+    parts.append("Male" if row["gender"] == "M" else "Female")
+    if row["first_careunit"]:
+        parts.append(row["first_careunit"])
+    if row["admission_type"]:
+        parts.append(f"{row['admission_type']} admission")
+    parts.append(f"actual LOS {row['los']:.1f} days")
+    parts.append(_lab(int(src["outcome"].loc[stay_id])))
+    return " · ".join(parts)
+
+
+def peer_comparison_rows(rec, stay_id, src, n):
+    """Index patient vs. one peer over the patient's top-n features.
+
+    Absolute one-hot categories are reported as membership on both sides rather
+    than a signed delta: the difference between two 0/1 category flags is a
+    match-or-not, and printing '-1.0' for it would read as a clinical quantity.
+    """
+    peer = src["features"].loc[stay_id]
+    abs_raw = {d["feature"]: d.get("raw_value") for d in rec["top_contributions"]
+               if d["feature"] in ABS_FEATURES}
+    rows = []
+    for f in top_features(rec, n):
+        peer_val = float(peer[f])
+        if f in ABS_FEATURES:
+            pat_val = float(abs_raw.get(f, 0.0))
+            rows.append({"Feature": feat_label(f),
+                         "This patient": "yes" if pat_val > 0.5 else "no",
+                         "Peer": "yes" if peer_val > 0.5 else "no",
+                         "Difference": "same" if (pat_val > 0.5) == (peer_val > 0.5) else "differs"})
+        else:
+            pat_val = float(rec["patient"][f])
+            rows.append({"Feature": feat_label(f),
+                         "This patient": round(pat_val, 3),
+                         "Peer": round(peer_val, 3),
+                         "Difference": f"{pat_val - peer_val:+.3f}"})
+    return rows
+
+
 def patient_info_html(rec):
     return f"<div class='patinfo'>{patient_info_line(rec)}</div>"
 
@@ -207,10 +322,11 @@ def support_html(rec):
             f"{s['n_long_filtered']} long-stay{lf} · {s['n_short_filtered']} short-stay{sf}</p>")
 
 
-def raw_values_html(rec):
+def raw_values_html(rec, n=DEFAULT_TOP_N):
     """Patient vs. prototypes in raw clinical units (readable without knowing what a logit is)."""
-    feats = list(dict.fromkeys(d["feature"] for d in rec["top_contributions"]
-                               if d["feature"] in rec["patient"]))[:8]
+    feats = positionable_features(rec, n)
+    if not feats:
+        return f"<p class='note'>{NO_POSITIONABLE_NOTE.format(n=n)}</p>"
     rows = "".join(
         f"<tr><td>{feat_label(f)}</td><td>{rec['patient'][f]}</td>"
         f"<td>{rec['long_prototype'][f]}</td><td>{rec['short_prototype'][f]}</td></tr>"
@@ -245,22 +361,37 @@ def _sec(title, body):
     return f"<div class='sectionlabel'>{title}</div>{body}"
 
 
+def _level_div(n, body):
+    """One top-n variant, shown/hidden by setTopN(). Rendering every level up
+    front and toggling `display` follows the pattern showPatient() already uses,
+    rather than introducing a second, Plotly.react()-based redraw path."""
+    hide = "" if n == DEFAULT_TOP_N else " style='display:none'"
+    return f"<div class='lvl' data-lvl='{n}'{hide}>{body}</div>"
+
+
 def patient_block(rec, idx):
     correct = "✓ correct" if rec["pred_label"] == rec["true_label"] else "✗ wrong"
     stay_header = f"<div class='phead'>stay_id <b>{rec['stay_id']}</b></div>"
     pred_header = (f"<div class='phead'>p(Long Stay) = <b>{rec['prob']:.3f}</b> &nbsp;|&nbsp; "
                    f"Prediction: <b>{_lab(rec['pred_label'])}</b> &nbsp;|&nbsp; "
                    f"Truth: <b>{_lab(rec['true_label'])}</b> &nbsp;|&nbsp; {correct}</div>")
-    contrib_fig = fig_contributions(rec).to_html(full_html=False, include_plotlyjs=False)
-    position_fig = fig_prototype_position(rec).to_html(full_html=False, include_plotlyjs=False)
+
+    def fig_html(fig):
+        return fig.to_html(full_html=False, include_plotlyjs=False)
+
+    explanation = "".join(
+        _level_div(n, raw_values_html(rec, n) + fig_html(fig_contributions(rec, n)))
+        for n in TOP_N_LEVELS)
+    position = "".join(
+        _level_div(n, fig_html(fig_prototype_position(rec, n))) for n in TOP_N_LEVELS)
 
     display = "block" if idx == 0 else "none"
     sections = (
         _sec("Patient", stay_header + patient_info_html(rec)),
         _sec("Prediction", pred_header + reasons_html(rec)),
-        _sec("Explanation", raw_values_html(rec) + contrib_fig + cxr_support_html(rec)),
+        _sec("Explanation", explanation + cxr_support_html(rec)),
         _sec("Peer Group Comparison", peer_group_html(rec) + support_html(rec) + peers_html(rec)),
-        _sec("Delta / Difference", position_fig),
+        _sec("Delta / Difference", position),
     )
     return (f"<div class='patient' id='pat{idx}' style='display:{display}'>"
             + "".join(sections) + "</div>")
@@ -286,6 +417,13 @@ def build(window):
         for i, r in enumerate(cur))
     patients = "".join(patient_block(r, i) for i, r in enumerate(cur))
 
+    topn_options = "".join(
+        f"<option value='{n}'{' selected' if n == DEFAULT_TOP_N else ''}>{n}</option>"
+        for n in TOP_N_LEVELS)
+    importance = "".join(
+        _level_div(n, fig_importance(glob, top=n).to_html(full_html=False, include_plotlyjs=False))
+        for n in TOP_N_LEVELS)
+
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>PRD-Net v2 Dashboard ({window}h)</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
@@ -306,11 +444,17 @@ def build(window):
  .patinfo{{font-size:14px;color:#333;margin:2px 0 4px}}
  .peergroup{{background:#f4f4f4;border-radius:6px;padding:8px 12px;font-size:14px;margin:6px 0}}
  select{{font-size:14px;padding:4px}}
+ .controls{{background:#f4f4f4;border-radius:6px;padding:10px 14px;margin:10px 0;font-size:14px}}
 </style></head><body>
 <h1>PRD-Net v2 — Feature Difference Dashboard ({window}h)</h1>
+<div class="controls">
+  <label>Top features: <select id="topn" onchange="setTopN()">{topn_options}</select></label>
+  <span style="color:#666;margin-left:10px">drives the global chart, the raw-value table,
+  the contribution chart and the prototype-position chart</span>
+</div>
 <h2>Global overview (test, n={glob['n_test']})</h2>
 {metrics_html}{dvd}
-{fig_importance(glob).to_html(full_html=False, include_plotlyjs=False)}
+{importance}
 <h2>Patient view (curated examples)</h2>
 <label>Select patient: <select id="sel" onchange="showPatient()">{options}</select></label>
 {patients}
@@ -318,6 +462,16 @@ def build(window):
 function showPatient(){{
   var n={len(cur)}, v=document.getElementById('sel').value;
   for(var i=0;i<n;i++){{document.getElementById('pat'+i).style.display=(''+i===v)?'block':'none';}}
+  window.dispatchEvent(new Event('resize'));
+}}
+function setTopN(){{
+  // Every level is pre-rendered; only one is visible at a time. Plotly lays out
+  // charts lazily, so a hidden one that just became visible needs a resize to
+  // pick up the container width.
+  var v=document.getElementById('topn').value;
+  document.querySelectorAll('.lvl').forEach(function(el){{
+    el.style.display=(el.dataset.lvl===v)?'block':'none';
+  }});
   window.dispatchEvent(new Event('resize'));
 }}
 </script>

@@ -326,3 +326,20 @@ Two visualizations on top of the fd06 exports (data-only; they load no model):
 - **`fd07_dashboard.py`** — the full interactive Streamlit app over all ~4 600 test
   patients (filters by correct/wrong/false-neg/false-pos, patient picker). Same
   components as the static report. Run with `streamlit run fd07_dashboard.py`.
+
+Both carry a **Top features** control (5 / 10 / 15) driving the global importance
+chart, the raw-value table, the contribution chart and the prototype-position chart.
+It can only ever show what fd06 exported: `TOP_K` there is the ceiling, so raising the
+levels past 15 means re-running fd06.
+
+In the Streamlit app the three peer tables are **selectable** — picking a row shows
+that peer's demographics, actual LOS in days and observed outcome, plus a
+feature-by-feature comparison against the patient on screen. Peers are training
+patients, so the export names them without their values; the app pulls those from
+`fd_feature_matrix_train_raw_{w}h.parquet`, `cohort.csv` and `y_train.parquet` via
+`fd07_report.load_peer_source()`. No prediction is shown for a peer — the model was
+fitted on them, so a probability would be meaningless.
+
+Some patients' leading drivers are all categorical (`icd_*`/`icu_*`/`adm_*`), which
+have no prototype to sit between. Those panels say so instead of rendering empty;
+raising the feature count brings clinical measurements into view.

@@ -23,7 +23,6 @@ Run AFTER: fd04_diff-train.py.
 
 import importlib.util
 import json
-import pickle
 import sys
 from pathlib import Path
 
@@ -37,8 +36,7 @@ import config_fd as C
 
 _spec = importlib.util.spec_from_file_location("fd_model", Path(__file__).parent / "fd03_diff-model.py")
 _m = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_m)
-assemble_diff, input_dim, build_model, input_feature_labels, load_absolute_block = (
-    _m.assemble_diff, _m.input_dim, _m.build_model, _m.input_feature_labels, _m.load_absolute_block)
+load_trained = _m.load_trained
 
 TOP_K = 15     # entries in the largest_dev_* lists. Those rank whole features,
                # so one entry is one feature and no de-duplication applies.
@@ -59,35 +57,23 @@ TOP_FEATURES = 15
 DOMINANCE_K = 5
 
 
-def load_bundle(split):
-    with open(C.prototypes_path(split), "rb") as f:
-        return pickle.load(f)
-
-
 if __name__ == "__main__":
     W = C.WINDOW_HOURS
     print(f"fd06 — dashboard export  (window={W})")
 
-    tr, te = load_bundle("train"), load_bundle("test")
-    abs_tr = load_absolute_block("train", tr["stay_ids"])
-    abs_te = load_absolute_block("test", te["stay_ids"])
-    Xtr = assemble_diff(tr["X"], tr["pos_proto"], tr["neg_proto"], absolute=abs_tr).astype(np.float32)
-    Xte = assemble_diff(te["X"], te["pos_proto"], te["neg_proto"], absolute=abs_te).astype(np.float32)
-
-    model = build_model(input_dim()); model.load_state_dict(
-        torch.load(C.checkpoint_path(), weights_only=True)); model.eval()
-    thr = torch.load(C.threshold_path(), weights_only=True)["threshold"]
+    lt = load_trained("test")
+    tr, te = lt["train"], lt["query"]
+    Xtr, Xte = lt["Xtr"], lt["Xq"]
+    model, thr = lt["model"], lt["thr"]
     probs = torch.sigmoid(model(torch.tensor(Xte))).detach().numpy()
     preds = (probs >= thr).astype(int)
 
-    coef = model.linear.weight.detach().numpy().ravel()
-    contribs = coef[None, :] * (Xte - Xtr.mean(axis=0)[None, :])   # (N, in_dim)
-    labels_in = input_feature_labels()
+    coef = lt["coef"]
+    contribs = lt["contribs"]                              # (N, in_dim)
+    labels_in = lt["labels_in"]
 
-    with open(C.scaler_bundle_path(), "rb") as f:
-        sb = pickle.load(f)
-    scaler = sb["scaler"]; feats = C.feature_names(); F = len(feats)
-    abs_feats = C.absolute_feature_names()
+    scaler = lt["scaler"]; feats = lt["feats"]; F = len(feats)
+    abs_feats = lt["abs_feats"]
     CXR_SET = set(C.CXR_FEATURES)   # kept out of top_contributions; surfaced separately (cxr_support)
 
     # Raw-unit patient values and raw-unit prototypes (invert the scaler).

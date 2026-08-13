@@ -24,6 +24,7 @@ The deltas are NEVER collapsed to a scalar norm: the explanation is contrastive
 and directional ("feature is above/below the prototype"), not a distance.
 """
 
+import pickle
 import sys
 from pathlib import Path
 
@@ -86,6 +87,48 @@ def input_feature_labels(diff_input: str | None = None) -> list[str]:
     base = {"both": dp + dn, "pos_only": dp, "neg_only": dn,
             "proto_gap": dp + dn + gap}[diff_input]
     return base + [f"abs:{f}" for f in C.absolute_feature_names()]
+
+
+def load_bundle(split: str) -> dict:
+    """Load fd02's per-split prototype bundle (stay_ids, labels, X, protos, peer ids)."""
+    with open(C.prototypes_path(split), "rb") as f:
+        return pickle.load(f)
+
+
+def load_scaler():
+    with open(C.scaler_bundle_path(), "rb") as f:
+        return pickle.load(f)["scaler"]
+
+
+def load_trained(split: str, train_split: str = "train") -> dict:
+    """Load everything fd05/fd06 need to explain a trained model's predictions
+    on `split`: bundles, assembled diff vectors, the checkpointed model +
+    threshold, and the exact linear decomposition contribs = w*(x - E_train[x])
+    (identical to the SHAP values fd05 verifies). Centralized here so the two
+    scripts don't each re-derive the same formula from disk.
+    """
+    tr = load_bundle(train_split)
+    qy = load_bundle(split)
+    Xtr = assemble_diff(tr["X"], tr["pos_proto"], tr["neg_proto"],
+                        absolute=load_absolute_block(train_split, tr["stay_ids"])).astype(np.float32)
+    Xq = assemble_diff(qy["X"], qy["pos_proto"], qy["neg_proto"],
+                       absolute=load_absolute_block(split, qy["stay_ids"])).astype(np.float32)
+
+    model = build_model(input_dim())
+    model.load_state_dict(torch.load(C.checkpoint_path(), weights_only=True))
+    model.eval()
+    thr = torch.load(C.threshold_path(), weights_only=True)["threshold"]
+
+    coef = model.linear.weight.detach().numpy().ravel()
+    bias = float(model.linear.bias.item())
+    contribs = coef[None, :] * (Xq - Xtr.mean(axis=0)[None, :])
+
+    return {
+        "train": tr, "query": qy, "Xtr": Xtr, "Xq": Xq,
+        "model": model, "thr": thr, "coef": coef, "bias": bias, "contribs": contribs,
+        "scaler": load_scaler(), "labels_in": input_feature_labels(),
+        "feats": C.feature_names(), "abs_feats": C.absolute_feature_names(),
+    }
 
 
 def load_absolute_block(split: str, stay_ids) -> np.ndarray | None:

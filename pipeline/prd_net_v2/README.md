@@ -59,6 +59,33 @@ under the cached-peer path. So `embedding` mode isn't kept because it performs
 better — only as a controlled comparison point back to v1's exact peer set.
 Switch via `RETRIEVAL_SPACE` in `config_fd.py`.
 
+**Why `embedding` came first.** This track's first implementation shipped with
+`RETRIEVAL_SPACE="embedding"` as the *only* mode — deliberately, so the very
+first test of "does a feature-level contrastive difference model work at all"
+held the peer set fixed at exactly what v1 already used. That isolates a
+single variable (prototype/model design) against a known-good baseline instead
+of changing two things (peer retrieval *and* the model) at once and not being
+able to tell which one moved the numbers. Once that comparison confirmed the
+feature-difference model itself was sound, the natural follow-up question was
+whether v1's GRU embedding was even necessary for finding good peers, or
+whether plain L2 distance in this track's own interpretable feature space
+would do just as well — which is what `feature` mode tests. It did (see
+numbers above), and as a bonus drops the `pipeline/prd_net/01`/`02`
+dependency entirely, so it was promoted to default in `c41734b`.
+
+Given that history, `embedding` is intentionally an **interim/ablation
+finding, not a maintained second mode**: it was the scaffolding that let the
+model-design question be answered cleanly, not a deployment path meant to
+stay in lock-step with `feature` going forward. That's also why the generated
+artifacts (`fd_prototypes_*`, `fd_diff_v1_*.pt`, `fd_metrics_*.json`) are only
+window-tagged, not retrieval-space-tagged (see `config_fd.py`'s path
+builders) — re-running with `RETRIEVAL_SPACE="embedding"` overwrites the
+current window's `feature`-mode artifacts on purpose. If you need the
+`embedding` numbers again (e.g. to re-verify the comparison after a feature-set
+change), rerun `fd02`/`fd04` with the switch flipped, note the printed
+metrics, then flip back and rerun to restore the default artifacts — there is
+no dual-mode artifact retention, by design.
+
 ## Feature list and F
 
 **Difference features** (continuous, differenced against the prototypes). Per
@@ -114,29 +141,24 @@ comments at each choice point.
 
 ## Results (test set)
 
-> **Note:** the numbers below were produced with `RETRIEVAL_SPACE = "embedding"`
-> (the *previous* default). They have not yet been regenerated under the new
-> `feature` default — see "Retrieval space" above for the 24h head-to-head that
-> exists so far. Treat this table as the `embedding`-mode reference until it's
-> rerun.
-
 Headline metrics are AUROC and **AUPRC** (23.6% positive imbalance). 48h is the
-primary analysis; 24h is the robustness / comparability check. The numbers below
-are from the **full rebuild from raw MIMIC** (2026-07-26): probe-disconnect
-vitals fix + absolute hard-filter features + CXR flags — see "Full reproduction"
-below.
+primary analysis; 24h is the robustness / comparability check. Both rows are
+current: rebuilt 2026-08-13 end-to-end (`fd01`→`fd02`→`fd04`→`fd06`) under the
+`feature`-retrieval default (`RETRIEVAL_SPACE = "feature"`, see "Retrieval
+space" above) on top of the 2026-07-26 full rebuild from raw MIMIC
+(probe-disconnect vitals fix + absolute hard-filter features + CXR flags) —
+see "Full reproduction" below. Source: `fd_metrics_48h.json` / `fd_metrics_24h.json`.
 
 | window | accuracy | precision | recall | F1 | AUROC | **AUPRC** |
 |--------|---------:|----------:|-------:|---:|------:|----------:|
-| **48h** (primary) | 0.794 | 0.553 | 0.658 | 0.601 | **0.826** | **0.600** |
-| 24h (robustness)  | 0.735 | 0.459 | 0.691 | 0.552 | 0.792 | 0.533 |
+| **48h** (primary) | 0.795 | 0.556 | 0.646 | 0.598 | **0.836** | **0.617** |
+| 24h (robustness)  | 0.728 | 0.453 | 0.726 | 0.558 | 0.801 | 0.556 |
 
 Reference — Wu et al. GBDT: AUROC 0.747 / AUPRC 0.536. The 48h linear difference
-model now exceeds the GBDT on **both** AUROC and AUPRC while staying fully
-interpretable (the earlier 0.560 F1 / 0.783 AUROC predates the vitals fix +
-absolute/CXR features). A sklearn `LogisticRegression` fit on the same diff
-vectors matches the torch model (sanity check), and `shap.LinearExplainer`
-reproduces `w·(x − E[x])` exactly (max abs diff 0.0).
+model exceeds the GBDT on **both** AUROC and AUPRC while staying fully
+interpretable. A sklearn `LogisticRegression` fit on the same diff vectors
+matches the torch model (sanity check), and `shap.LinearExplainer` reproduces
+`w·(x − E[x])` exactly (max abs diff 0.0, enforced by an assertion in `fd05`).
 
 ## Notes / gotchas
 
@@ -265,14 +287,16 @@ old PRD and (their) baselines are 48h-only. Test-set results:
 |-------|:------:|---:|------:|------:|
 | GRU (baseline) | 48h | 0.611 | 0.848 | 0.644 |
 | Old PRD (latent delta) | 48h | 0.621 | 0.835 | 0.607 |
-| New PRD (feature-diff) | 48h | 0.601 | 0.826 | 0.600 |
-| New PRD (feature-diff) | 24h | 0.552 | 0.792 | 0.533 |
+| New PRD (feature-diff) | 48h | 0.598 | 0.836 | 0.617 |
+| New PRD (feature-diff) | 24h | 0.558 | 0.801 | 0.556 |
 
-(Full-rebuild numbers, 2026-07-26. GRU from `07_model_gru.py`, old PRD from
-`prd_net/05_prd-inference.py`, new PRD from `fd_metrics_{w}h.json` — the same test
-set and thresholds `fd08` uses.) After the rebuild the three models sit within
-~0.02 AUROC of each other, so the feature-diff track now buys an exactly
-attributable, contrastive, per-feature explanation at almost no accuracy cost.
+(GRU/old PRD: full-rebuild numbers, 2026-07-26, from `07_model_gru.py` /
+`prd_net/05_prd-inference.py` — unaffected by this track's `RETRIEVAL_SPACE`
+switch, so still current. New PRD: refreshed 2026-08-13 under the `feature`
+retrieval default, from `fd_metrics_{w}h.json` — the same test set and
+thresholds `fd08` uses.) The three models sit within ~0.01–0.02 AUROC of each
+other, so the feature-diff track buys an exactly attributable, contrastive,
+per-feature explanation at essentially no accuracy cost.
 
 > **fd08 note:** `fd08_model-compare.py` predates the absolute-features change
 > (`d48fe19`) and rebuilds the new-PRD model without the 29 absolute inputs, so it

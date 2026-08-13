@@ -18,7 +18,6 @@ Run AFTER: fd02_feature-prototypes.py.
 
 import importlib.util
 import json
-import pickle
 import sys
 from pathlib import Path
 
@@ -37,13 +36,9 @@ import config_fd as C
 # fd03 has a digit + hyphen in its name -> importlib (same pattern as prd_net/)
 _spec = importlib.util.spec_from_file_location("fd_model", Path(__file__).parent / "fd03_diff-model.py")
 _m = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_m)
-assemble_diff, input_dim, build_model, build_logreg, load_absolute_block = (
-    _m.assemble_diff, _m.input_dim, _m.build_model, _m.build_logreg, _m.load_absolute_block)
-
-
-def load_bundle(split):
-    with open(C.prototypes_path(split), "rb") as f:
-        return pickle.load(f)
+assemble_diff, input_dim, build_model, build_logreg, load_absolute_block, load_bundle = (
+    _m.assemble_diff, _m.input_dim, _m.build_model, _m.build_logreg, _m.load_absolute_block,
+    _m.load_bundle)
 
 
 def make_xy(bundle, split):

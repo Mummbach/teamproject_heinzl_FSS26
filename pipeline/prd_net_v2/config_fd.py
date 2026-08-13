@@ -78,6 +78,12 @@ AGE_TOLERANCE = 5
 # torch model) while leaving 0 training patients with an empty peer side
 # (vs. some under the cached-peer path). "embedding" is kept only as a
 # same-peers-as-v1 comparison point, not because it performs better.
+# "embedding" was this track's original default (isolate the prototype/model
+# change against v1's exact peer set before also varying retrieval); it's now
+# an interim/ablation finding, not a maintained parallel mode — see README
+# "Retrieval space" for the full argument. Artifacts are only window-tagged,
+# so switching back to "embedding" and re-running fd02/fd04/fd06 overwrites
+# this window's "feature"-mode prototypes/checkpoint/metrics on purpose.
 RETRIEVAL_SPACE = "feature"          # "embedding" | "feature"
 
 # DESIGN DECISION D2 — prototype aggregation: simple mean of peer feature
@@ -164,7 +170,7 @@ def feature_names() -> list[str]:
 
 def n_features() -> int:
     """F = number of difference features (12 TS x 5 stats + age = 61,
-    + 18 CXR-derived features if USE_CXR_FEATURES = 79)."""
+    + 16 CXR-derived features if USE_CXR_FEATURES = 77)."""
     return len(feature_names())
 
 

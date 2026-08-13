@@ -13,8 +13,8 @@ Why re-aggregate from timeseries.parquet instead of reusing the X_* columns?
 Per time-series feature we compute AGG_STATS = mean / last / min / max / slope
 over [0, WINDOW_HOURS). 'slope' is the OLS slope of the feature vs hour using the
 non-missing samples. The continuous static feature `age` is appended.
-=> F = 12 TS features x 5 stats + age = 61 difference features, + 18 CXR-derived
-features (01d_extract_radiology_features.py output) if USE_CXR_FEATURES = 79.
+=> F = 12 TS features x 5 stats + age = 61 difference features, + 16 CXR-derived
+features (01d_extract_radiology_features.py output) if USE_CXR_FEATURES = 77.
 Stays without a usable CXR report get 0 for every CXR feature, incl. has_cxr_report.
 
 The hard-filter one-hots (icd_*, icu_*, adm_*) and other binary indicators are
@@ -61,15 +61,15 @@ def _build_window_array(ts: pd.DataFrame, stay_ids: np.ndarray,
     sub = ts[(ts["hour"] >= 0) & (ts["hour"] < window_hours)]
     sub = sub[sub["stay_id"].isin(set(stay_ids.tolist()))]
 
-    row_of = {int(sid): i for i, sid in enumerate(stay_ids)}
-    sid_arr  = sub["stay_id"].to_numpy()
+    # sub is already filtered to stay_ids, so every row resolves to a row index —
+    # map stay_id -> row position and assign the whole block at once instead of
+    # looping in Python (this table is ~1.5M rows across the full cohort).
+    row_of   = pd.Series(np.arange(len(stay_ids)), index=stay_ids)
+    row_arr  = row_of.loc[sub["stay_id"].to_numpy()].to_numpy()
     hour_arr = sub["hour"].to_numpy().astype(int)
     vals     = sub[C.TS_FEATURES].to_numpy(dtype=np.float32)
 
-    for sid, hour, v in zip(sid_arr, hour_arr, vals):
-        r = row_of.get(int(sid))
-        if r is not None:
-            arr[r, hour, :] = v
+    arr[row_arr, hour_arr, :] = vals
     return arr
 
 

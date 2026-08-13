@@ -22,7 +22,6 @@ Run AFTER: fd04_diff-train.py.
 """
 
 import importlib.util
-import pickle
 import sys
 from pathlib import Path
 
@@ -37,13 +36,7 @@ import config_fd as C
 
 _spec = importlib.util.spec_from_file_location("fd_model", Path(__file__).parent / "fd03_diff-model.py")
 _m = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_m)
-assemble_diff, input_dim, build_model, input_feature_labels, load_absolute_block = (
-    _m.assemble_diff, _m.input_dim, _m.build_model, _m.input_feature_labels, _m.load_absolute_block)
-
-
-def load_bundle(split):
-    with open(C.prototypes_path(split), "rb") as f:
-        return pickle.load(f)
+load_trained = _m.load_trained
 
 
 if __name__ == "__main__":
@@ -54,25 +47,16 @@ if __name__ == "__main__":
               "linear model. For the MLP ablation, aggregate SHAP back to features.")
 
     # ── Load model, threshold, scaler, train + test diff vectors ──────────────
-    tr, te = load_bundle("train"), load_bundle("test")
-    abs_tr = load_absolute_block("train", tr["stay_ids"])
-    abs_te = load_absolute_block("test", te["stay_ids"])
-    Xtr = assemble_diff(tr["X"], tr["pos_proto"], tr["neg_proto"], absolute=abs_tr).astype(np.float32)
-    Xte = assemble_diff(te["X"], te["pos_proto"], te["neg_proto"], absolute=abs_te).astype(np.float32)
-
-    model = build_model(input_dim()); model.load_state_dict(
-        torch.load(C.checkpoint_path(), weights_only=True)); model.eval()
-    thr = torch.load(C.threshold_path(), weights_only=True)["threshold"]
-
-    with open(C.scaler_bundle_path(), "rb") as f:
-        scaler = pickle.load(f)["scaler"]
+    lt = load_trained("test")
+    tr, te = lt["train"], lt["query"]
+    Xtr, Xte = lt["Xtr"], lt["Xq"]
+    model, thr = lt["model"], lt["thr"]
+    scaler = lt["scaler"]
     scale, mean_ = scaler.scale_, scaler.mean_            # (F + A,)
-
-    coef = model.linear.weight.detach().numpy().ravel()  # (in_dim,)
-    bias = float(model.linear.bias.item())
-    labels_in = input_feature_labels()
-    feats = C.feature_names(); F = len(feats)
-    abs_feats = C.absolute_feature_names()
+    coef, bias = lt["coef"], lt["bias"]                   # (in_dim,), scalar
+    labels_in = lt["labels_in"]
+    feats = lt["feats"]; F = len(feats)
+    abs_feats = lt["abs_feats"]
 
     # ── SHAP (interventional linear) vs manual w*(x-mean) ─────────────────────
     # Use the full train set as background (max_samples=len) — shap otherwise
@@ -81,10 +65,12 @@ if __name__ == "__main__":
     explainer = shap.LinearExplainer(
         (coef, bias), masker, feature_perturbation="interventional")
     shap_vals = explainer.shap_values(Xte)               # (N, in_dim)
-    manual = coef[None, :] * (Xte - Xtr.mean(axis=0)[None, :])
+    manual = lt["contribs"]                               # w*(x-mean), from load_trained
     max_diff = float(np.max(np.abs(shap_vals - manual)))
-    print(f"  SHAP vs manual w*(x-mean): max abs diff = {max_diff:.2e}  "
-          f"({'OK' if max_diff < 1e-4 else 'MISMATCH'})")
+    print(f"  SHAP vs manual w*(x-mean): max abs diff = {max_diff:.2e}")
+    assert max_diff < 1e-4, (
+        f"SHAP LinearExplainer diverged from w*(x-mean) by {max_diff:.2e} — "
+        "this is the track's core 'exact attribution' claim; treat as a hard failure.")
 
     probs = torch.sigmoid(model(torch.tensor(Xte))).detach().numpy()
     preds = (probs >= thr).astype(int)

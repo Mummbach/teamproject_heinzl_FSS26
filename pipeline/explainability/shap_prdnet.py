@@ -256,13 +256,14 @@ print(f"  Negative prototype from {len(neg_sids):,} short-stay training patients
 # BUILD END-TO-END WRAPPER
 # ═══════════════════════════════════════════════════════════════════════
 
-# Expand prototypes to batch dimension for the wrapper
-# (will be broadcast by register_buffer — we pass per-sample identical protos)
+# Keep prototypes at shape (1, hidden_dim) — PRDNet.forward broadcasts
+# `h - pos_proto` against any batch size, including GradientExplainer's
+# internal interpolation batches (which don't match the DataLoader batch size).
 shap_model = PRDNetSHAPWrapper(
     gru_model  = gru_model,
     prd_model  = prd_model,
-    pos_proto  = pos_proto_enc.unsqueeze(0).expand(BATCH_SIZE, -1).clone(),
-    neg_proto  = neg_proto_enc.unsqueeze(0).expand(BATCH_SIZE, -1).clone(),
+    pos_proto  = pos_proto_enc.unsqueeze(0).clone(),
+    neg_proto  = neg_proto_enc.unsqueeze(0).clone(),
 ).to(DEVICE)
 shap_model.eval()
 
@@ -293,11 +294,7 @@ def compute_shap_for_loader(loader, dataset_name):
     for batch_idx, (batch_ts, batch_static, _) in enumerate(loader):
         batch_ts     = batch_ts.to(DEVICE)
         batch_static = batch_static.to(DEVICE)
-
-        # Resize proto buffers to match actual batch size (last batch may be smaller)
         n = batch_ts.shape[0]
-        shap_model.pos_proto = pos_proto_enc.unsqueeze(0).expand(n, -1).clone().to(DEVICE)
-        shap_model.neg_proto = neg_proto_enc.unsqueeze(0).expand(n, -1).clone().to(DEVICE)
 
         shap_vals   = explainer.shap_values([batch_ts, batch_static])
 

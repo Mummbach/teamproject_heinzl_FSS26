@@ -25,6 +25,9 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import shap
@@ -157,4 +160,195 @@ if __name__ == "__main__":
         for line in render(i):
             print(line)
     print(f"\n  {n_consistent}/5 net-direction consistent with the long-stay label.")
+
+    # ── VISUAL EXPORTS — best practices from GRU baseline ─────────────────────
+    # Mirrors shap_global.py / explainability.py: beeswarm summary, waterfall
+    # plots for 3 representative patients, dependence plots, and calibration.
+    C.EXPORT_DIR.mkdir(exist_ok=True)
+    TAG = f"_{W}h"
+
+    # 1. Summary plot (beeswarm) ─────────────────────────────────────────────
+    print("\nGenerating SHAP summary plot...")
+    shap.summary_plot(
+        shap_vals, Xte, feature_names=labels_in,
+        max_display=20, show=False, plot_size=(12, 8),
+    )
+    plt.title(
+        f"SHAP Feature Importance — PRD-Net v2 Diff Model (Test Set, {W}h window)",
+        fontsize=13,
+    )
+    plt.tight_layout()
+    plt.savefig(C.EXPORT_DIR / f"fd_shap_summary{TAG}.png", dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"  Saved: exports/fd_shap_summary{TAG}.png")
+
+    # 2. Waterfall plots — high / median / low predicted-risk ────────────────
+    print("\nGenerating waterfall plots...")
+
+    sorted_idx = np.argsort(probs.ravel())
+    patient_cases = {
+        "high_risk":   int(sorted_idx[-1]),
+        "median_risk": int(sorted_idx[len(sorted_idx) // 2]),
+        "low_risk":    int(sorted_idx[0]),
+    }
+
+    base_value      = float(probs.mean())
+    TOP_N_WATERFALL = 15
+
+    for case_name, i in patient_cases.items():
+        y_prob   = float(probs[i])
+        y_true   = int(te["labels"][i])
+        shap_row = shap_vals[i]
+
+        order      = np.argsort(np.abs(shap_row))[::-1]
+        top_idx    = order[:TOP_N_WATERFALL]
+        top_shap   = shap_row[top_idx]
+        top_names  = [labels_in[j] for j in top_idx]
+        top_vals   = Xte[i, top_idx]
+        residual   = shap_row.sum() - top_shap.sum()
+
+        shap_with_res  = np.append(top_shap, residual)
+        names_with_res = top_names + [f"... {len(labels_in) - TOP_N_WATERFALL} others"]
+
+        cumulative  = base_value
+        bar_bottoms = []
+        bar_heights = []
+        bar_colors  = []
+        for sv in shap_with_res:
+            bar_bottoms.append(min(cumulative, cumulative + sv))
+            bar_heights.append(abs(sv))
+            bar_colors.append("#d73027" if sv >= 0 else "#4575b4")
+            cumulative += sv
+
+        y_positions = list(range(len(shap_with_res)))
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.barh(y_positions, bar_heights, left=bar_bottoms,
+                color=bar_colors, edgecolor="white", linewidth=0.5, height=0.7)
+
+        tick_labels = []
+        for name, val, sv in zip(names_with_res,
+                                  np.append(top_vals, [np.nan]), shap_with_res):
+            sign = "+" if sv >= 0 else "−"
+            if np.isnan(val):
+                tick_labels.append(f"{name}   ({sign}{abs(sv):.3f})")
+            else:
+                tick_labels.append(f"{name} = {val:.2f}   ({sign}{abs(sv):.3f})")
+
+        ax.set_yticks(y_positions)
+        ax.set_yticklabels(tick_labels, fontsize=7)
+        ax.axvline(base_value, color="black", linewidth=1.2, linestyle="--",
+                   label=f"E[f(x)] = {base_value:.3f}")
+        ax.axvline(y_prob, color="gray", linewidth=1.2, linestyle=":",
+                   label=f"f(x) = {y_prob:.3f}")
+        truth_str = "prolonged (>7d)" if y_true == 1 else "normal (≤7d)"
+        ax.set_xlabel("SHAP contribution (logit units)", fontsize=10)
+        ax.set_title(
+            f"SHAP Waterfall — {case_name.replace('_', ' ').title()} [{W}h window]\n"
+            f"stay_id={int(te['stay_ids'][i])}  |  prob={y_prob:.3f}  |  actual={truth_str}",
+            fontsize=11,
+        )
+        ax.legend(fontsize=9)
+        plt.tight_layout()
+        plt.savefig(C.EXPORT_DIR / f"fd_waterfall_{case_name}{TAG}.png",
+                    dpi=150, bbox_inches="tight")
+        plt.close()
+        print(f"  Saved: exports/fd_waterfall_{case_name}{TAG}.png  "
+              f"(stay={int(te['stay_ids'][i])}, prob={y_prob:.3f}, true={y_true})")
+
+    # 3. Dependence plots — top-3 input dimensions ───────────────────────────
+    print("\nGenerating dependence plots...")
+
+    mean_abs_dep = np.abs(shap_vals).mean(axis=0)
+    top3_j       = np.argsort(mean_abs_dep)[::-1][:3]
+    top3_names   = [labels_in[j] for j in top3_j]
+    print(f"  Top-3 input dimensions: {top3_names}")
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    for ax, j, name in zip(axes, top3_j, top3_names):
+        x_vals = Xte[:, j]
+        y_shap = shap_vals[:, j]
+        sc = ax.scatter(x_vals, y_shap, c=x_vals, cmap="coolwarm",
+                        s=12, alpha=0.6, linewidths=0)
+        plt.colorbar(sc, ax=ax, label="Feature value (scaled)")
+        ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
+        ax.set_xlabel(name, fontsize=9)
+        ax.set_ylabel("SHAP value", fontsize=10)
+        ax.set_title(f"{name}\nmean|SHAP| = {mean_abs_dep[j]:.4f}", fontsize=9)
+
+    fig.suptitle(
+        f"SHAP Dependence Plots — Top-3 Input Dimensions, PRD-Net v2 ({W}h window)",
+        fontsize=12,
+    )
+    plt.tight_layout()
+    plt.savefig(C.EXPORT_DIR / f"fd_dependence{TAG}.png", dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"  Saved: exports/fd_dependence{TAG}.png")
+
+    # 4. Calibration — reliability diagram + ECE ─────────────────────────────
+    print("\nGenerating calibration plot...")
+    from sklearn.calibration import calibration_curve
+
+    y_prob_arr = probs.ravel()
+    y_true_arr = te["labels"].astype(int)
+
+    N_BINS = 10
+    frac_pos, mean_pred = calibration_curve(
+        y_true_arr, y_prob_arr, n_bins=N_BINS, strategy="uniform"
+    )
+    bin_edges  = np.linspace(0, 1, N_BINS + 1)
+    bin_counts = np.array([
+        ((y_prob_arr >= bin_edges[k]) & (y_prob_arr < bin_edges[k + 1])).sum()
+        for k in range(N_BINS)
+    ])
+    n_ret        = len(frac_pos)
+    valid_counts = np.array([bin_counts[k] for k in range(N_BINS) if bin_counts[k] > 0])[:n_ret]
+    ece          = float(
+        np.sum(valid_counts * np.abs(frac_pos - mean_pred)) / valid_counts.sum()
+    )
+    print(f"  ECE (Expected Calibration Error) = {ece:.4f}")
+    print(f"  Prevalence (test positive rate)  = {y_true_arr.mean():.4f}")
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    ax = axes[0]
+    ax.plot([0, 1], [0, 1], "k--", linewidth=1, label="Perfect calibration")
+    ax.plot(mean_pred, frac_pos, "o-", color="#d73027",
+            linewidth=2, markersize=6, label="Model")
+    ax.fill_between(mean_pred, frac_pos, mean_pred,
+                    alpha=0.15, color="#d73027", label="Calibration gap")
+    ax.set_xlabel("Mean predicted probability", fontsize=11)
+    ax.set_ylabel("Fraction of positives", fontsize=11)
+    ax.set_title(f"Reliability Diagram\nECE = {ece:.4f}", fontsize=12)
+    ax.legend(fontsize=9)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
+    ax2 = axes[1]
+    pos_probs = y_prob_arr[y_true_arr == 1]
+    neg_probs = y_prob_arr[y_true_arr == 0]
+    ax2.hist(neg_probs, bins=30, alpha=0.6, color="#4575b4",
+             label="Actual ≤7d (negative)", density=True)
+    ax2.hist(pos_probs, bins=30, alpha=0.6, color="#d73027",
+             label="Actual >7d (positive)", density=True)
+    ax2.axvline(thr, color="black", linestyle="--", linewidth=1,
+                label=f"Threshold ({thr:.2f})")
+    ax2.set_xlabel("Predicted probability", fontsize=11)
+    ax2.set_ylabel("Density", fontsize=11)
+    ax2.set_title("Score Distribution by True Label", fontsize=12)
+    ax2.legend(fontsize=9)
+
+    fig.suptitle(
+        f"Calibration Analysis — PRD-Net v2 Diff Model (Test Set, {W}h window)",
+        fontsize=13,
+    )
+    plt.tight_layout()
+    plt.savefig(C.EXPORT_DIR / f"fd_calibration{TAG}.png", dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"  Saved: exports/fd_calibration{TAG}.png")
+
+    print("\nExports written to exports/:")
+    print(f"  fd_shap_summary{TAG}.png")
+    print(f"  fd_waterfall_high_risk{TAG}.png / _median_risk / _low_risk")
+    print(f"  fd_dependence{TAG}.png")
+    print(f"  fd_calibration{TAG}.png")
     print("Done.")

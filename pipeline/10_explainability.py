@@ -52,12 +52,6 @@ from multimodal_utils import (
     get_cxr_feature_groups,
 )
 
-from config import OUTPUT_DIR
-from multimodal_utils import (
-    ICUDataset, GRUModel, SHAPWrapper, load_multimodal_model,
-    get_cxr_feature_groups,
-)
-
 SEED       = 42
 N_HEATMAP  = 200
 BATCH_SIZE = 256

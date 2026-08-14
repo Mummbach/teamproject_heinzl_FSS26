@@ -35,7 +35,6 @@ Notes:
 
 import pandas as pd
 import numpy as np
-from pathlib import Path
 from config import (
     OUTPUT_DIR, HOSP_DIR, ICU_DIR, MAPPING_PATH,
     ICD9_RANGES, ICD10_MAP, ICD_CATEGORIES,
@@ -97,6 +96,7 @@ print(f"  {len(cohort):,} stays\n")
 
 # 1 — ICD DIAGNOSES (18 binary categories)
 
+# NOTE: ICD codes are assigned at discharge for the entire hospitalization (MIMIC-IV has no POA indicator). These features are retrospective and may leak outcome information — reported metrics are likely optimistic for prospective deployment.
 # Raw ICD codes (thousands of distinct values) are transformed into 18 new binary columns.
 # The mapping captures clinically meaningful disease groups without creating sparsity.
 

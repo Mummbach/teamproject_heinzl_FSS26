@@ -95,10 +95,16 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(X_tv_arr, y_tv_arr), start
     probs = rf.predict_proba(X_fold_val)[:, 1]
     preds = (probs >= 0.5).astype(int)
 
+    if len(np.unique(y_fold_val)) < 2:
+        fold_auc = float("nan")
+    else:
+        fold_auc = roc_auc_score(y_fold_val, probs)
+
     metrics = {
         "fold":      fold,
+        # NOTE: threshold fixed at 0.5 — suboptimal for class-weighted RF; use AUPRC for comparisons
         "f1":        f1_score(y_fold_val, preds, zero_division=0),
-        "auroc":     roc_auc_score(y_fold_val, probs),
+        "auroc":     fold_auc,
         "auprc":     average_precision_score(y_fold_val, probs),
         "precision": precision_score(y_fold_val, preds, zero_division=0),
         "recall":    recall_score(y_fold_val, preds, zero_division=0),
@@ -131,7 +137,11 @@ print(f"  Accuracy  : {accuracy_score(y_test_arr, preds_test):.4f}")
 print(f"  Precision : {precision_score(y_test_arr, preds_test, zero_division=0):.4f}")
 print(f"  Recall    : {recall_score(y_test_arr, preds_test, zero_division=0):.4f}")
 print(f"  F1        : {f1_score(y_test_arr, preds_test, zero_division=0):.4f}")
-print(f"  AUROC     : {roc_auc_score(y_test_arr, probs_test):.4f}")
+if len(np.unique(y_test_arr)) < 2:
+    test_auc = float("nan")
+else:
+    test_auc = roc_auc_score(y_test_arr, probs_test)
+print(f"  AUROC     : {test_auc:.4f}")
 print(f"  AUPRC     : {average_precision_score(y_test_arr, probs_test):.4f}")
 
 # ── Save ──────────────────────────────────────────────────────────────────────

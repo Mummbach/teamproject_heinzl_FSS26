@@ -52,9 +52,12 @@ train, val = train_test_split(
 )
 
 # Assign split labels
-train = train.copy(); train["split"] = "train"
-val   = val.copy();   val["split"]   = "val"
-test  = test.copy();  test["split"]  = "test"
+train = train.copy()
+train["split"] = "train"
+val   = val.copy()
+val["split"]   = "val"
+test  = test.copy()
+test["split"]  = "test"
 
 split_ids = pd.concat([train, val, test], ignore_index=True)[["stay_id", "split"]]
 

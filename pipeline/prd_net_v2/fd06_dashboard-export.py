@@ -29,6 +29,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+import collections
+from sklearn.metrics import f1_score
 
 sys.path.append(str(Path(__file__).parent.parent))
 sys.path.append(str(Path(__file__).parent))
@@ -307,8 +309,6 @@ if __name__ == "__main__":
     flat.to_parquet(base.with_suffix(".parquet"))
 
     # ── Global summary for the dashboard's overview page ──────────────────────
-    import collections
-    from sklearn.metrics import f1_score
     mean_abs = np.abs(contribs).mean(axis=0)                 # (in_dim,)
     feat_imp = collections.defaultdict(float)
     for j, lab in enumerate(labels_in):

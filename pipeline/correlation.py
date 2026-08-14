@@ -56,6 +56,12 @@ df = (ts
 df = df.fillna(0)
 print(f"Merged: {df.shape[0]:,} stays × {df.shape[1]} columns")
 
+# Filter to training stays only to avoid val/test leakage
+train_ids = pd.read_parquet(OUTPUT_DIR / "split_ids.parquet")
+train_ids = train_ids[train_ids["split"] == "train"]["stay_id"]
+df = df[df["stay_id"].isin(train_ids)]
+print(f"After train filter: {df.shape[0]:,} stays × {df.shape[1]} columns")
+
 # ## 3. Prepare features
 # Keep only numerical columns (drop `stay_id` (as its just a random identifier with no medical meaning) and any text), then fill missing values with the column median.
 
@@ -66,7 +72,7 @@ feat_df = df.drop(columns=["stay_id"])
 feat_df = feat_df.fillna(feat_df.median())
 
 print(f"Features ready: {feat_df.shape[1]} columns, {feat_df.isnull().sum().sum()} NaNs remaining")
-feat_df.head(3)
+print(feat_df.head(3))
 
 # ## 4. Compute Pearson correlation matrix
 # Every feature is compared against every other feature. Values range from -1 to +1.
@@ -93,7 +99,7 @@ high_corr = (
 )
 
 print(f"{len(high_corr)} pairs with |r| > {THRESHOLD}:\n")
-high_corr
+print(high_corr)
 
 # ## 6. Visualise — heatmap of high-correlation features
 # Shows only the features involved in at least one high-correlation pair, so the plot stays readable.

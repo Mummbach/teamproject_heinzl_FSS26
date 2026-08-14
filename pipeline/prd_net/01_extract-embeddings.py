@@ -45,9 +45,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 from config import OUTPUT_DIR
 from prd_net.config_prd import EMBEDDING_CACHE_PATH
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 CHECKPOINT_PATH = OUTPUT_DIR / "best_gru_model.pt"
+MAX_TS_HOURS = 48
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -119,11 +118,17 @@ def load_trained_gru(checkpoint_path: Path) -> GRUModel:
     """
     state = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
 
+    # Guard: detect whether the checkpoint contains a GRU branch
+    use_gru = "gru.weight_ih_l0" in state
+
     # Infer dimensions from stored weight shapes
     # gru.weight_ih_l0 shape: (3 * hidden_size, ts_input_size)  — 3 GRU gates
-    ts_input_size     = state["gru.weight_ih_l0"].shape[1]
-    hidden_size       = state["gru.weight_ih_l0"].shape[0] // 3
-    num_layers        = sum(1 for k in state if k.startswith("gru.weight_ih_l"))
+    if use_gru:
+        ts_input_size = state["gru.weight_ih_l0"].shape[1]
+        hidden_size   = state["gru.weight_ih_l0"].shape[0] // 3
+        num_layers    = sum(1 for k in state if k.startswith("gru.weight_ih_l"))
+    else:
+        ts_input_size, hidden_size, num_layers = 0, 0, 0
     # static_branch.0 is the first Linear: (static_dim, static_input_size)
     static_dim        = state["static_branch.0.weight"].shape[0]
     static_input_size = state["static_branch.0.weight"].shape[1]
@@ -135,6 +140,7 @@ def load_trained_gru(checkpoint_path: Path) -> GRUModel:
         num_layers=num_layers,
         static_dim=static_dim,
         dropout=0.0,  # irrelevant in eval mode; keeps architecture identical
+        use_gru=use_gru,
     )
     model.load_state_dict(state)
     model.eval()
@@ -162,7 +168,7 @@ class ICUDataset(Dataset):
             .set_index(["stay_id", "hour"])[ts_features]
             .fillna(0.0)
         )
-        self.ts_arr = np.zeros((len(self.stay_ids), 48, len(ts_features)), dtype=np.float32)
+        self.ts_arr = np.zeros((len(self.stay_ids), MAX_TS_HOURS, len(ts_features)), dtype=np.float32)
         for i, sid in enumerate(self.stay_ids):
             if sid in ts_pivot.index.get_level_values("stay_id"):
                 self.ts_arr[i] = ts_pivot.loc[sid].values

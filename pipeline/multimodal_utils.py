@@ -10,6 +10,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
 
+from config import OBS_WINDOW
+
 # ── CXR feature names produced by cxr_03_extract_features.py ──────────────
 CXR_STRUCT_FEATURES = [
     "pneumonia", "pleural_effusion", "pneumothorax", "edema", "atelectasis",
@@ -59,7 +61,7 @@ class ICUDataset(Dataset):
             .set_index(["stay_id", "hour"])[ts_features]
             .fillna(0.0)
         )
-        self.ts_arr = np.zeros((len(self.stay_ids), 48, len(ts_features)), dtype=np.float32)
+        self.ts_arr = np.zeros((len(self.stay_ids), OBS_WINDOW, len(ts_features)), dtype=np.float32)
         for i, sid in enumerate(self.stay_ids):
             if sid in ts_pivot.index.get_level_values("stay_id"):
                 self.ts_arr[i] = ts_pivot.loc[sid].values
@@ -103,6 +105,8 @@ class GRUModel(nn.Module):
         )
 
     def forward(self, ts, static, text=None):
+        if self.use_text and text is None:
+            text = torch.zeros(ts.shape[0], self.text_branch[0].in_features, device=ts.device, dtype=ts.dtype)
         _, h_n = self.gru(ts)
         gru_out = h_n[-1]
         static_out = self.static_branch(static)
@@ -126,6 +130,8 @@ class SHAPWrapper(nn.Module):
         self.model = model
 
     def forward(self, ts, static):
+        # NOTE: text branch receives an all-zeros tensor — SHAP attributions for text features are not meaningful.
+        # Pass actual text embeddings for correct text-branch attribution.
         text = torch.zeros(ts.shape[0], 1536, device=ts.device) if self.model.use_text else None
         return torch.sigmoid(self.model(ts, static, text)).unsqueeze(1)
 

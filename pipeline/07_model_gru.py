@@ -168,14 +168,23 @@ class GRUModel(nn.Module):
 
 def compute_metrics(labels: np.ndarray, logits: np.ndarray) -> dict:
     probs = 1 / (1 + np.exp(-logits))   # sigmoid
+    # NOTE: threshold fixed at 0.5 — may be suboptimal given pos_weight training; tune on val set for deployment
     preds = (probs >= 0.5).astype(int)
+    if len(np.unique(labels)) < 2:
+        auroc = float("nan")
+    else:
+        auroc = roc_auc_score(labels, probs)
+    if len(np.unique(labels)) < 2:
+        auprc = float("nan")
+    else:
+        auprc = average_precision_score(labels, probs)
     return {
         "accuracy":  accuracy_score(labels, preds),
         "precision": precision_score(labels, preds, zero_division=0),
         "recall":    recall_score(labels, preds, zero_division=0),
         "f1":        f1_score(labels, preds, zero_division=0),
-        "auroc":     roc_auc_score(labels, probs),
-        "auprc":     average_precision_score(labels, probs),
+        "auroc":     auroc,
+        "auprc":     auprc,
     }
 
 
@@ -240,6 +249,8 @@ print(f"  Test stays           : {len(X_test):,}")
 # sample as if it were w negative samples.
 n_pos = int(y_train["los_gt7"].sum())
 n_neg = len(y_train) - n_pos
+if n_pos == 0:
+    raise ValueError("Training set has no positive examples — check y_train column and split logic")
 pos_weight = torch.tensor([n_neg / n_pos], dtype=torch.float32).to(DEVICE)
 print(f"\nClass balance (train): {n_pos:,} positive / {n_neg:,} negative")
 print(f"  pos_weight = {pos_weight.item():.2f}")
@@ -303,7 +314,7 @@ print(f"\nBest checkpoint: epoch {best_epoch}  (val F1 = {best_val_f1:.4f})")
 
 # ── Test evaluation ────────────────────────────────────────────────────
 print("\nLoading best checkpoint for test evaluation...")
-model.load_state_dict(torch.load(OUTPUT_DIR / "best_gru_model.pt", weights_only=True))
+model.load_state_dict(torch.load(OUTPUT_DIR / "best_gru_model.pt", weights_only=True, map_location=DEVICE))
 test_metrics = evaluate(model, test_loader)
 
 print("\nTest results:")

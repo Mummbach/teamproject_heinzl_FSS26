@@ -62,7 +62,7 @@ print(f"  binary     : {len(binary_cols):>4}  (left as-is)")
 # FIT SCALER ON TRAIN ONLY
 
 train_mean = X_train[continuous_cols].mean()
-train_std  = X_train[continuous_cols].std()
+train_std  = X_train[continuous_cols].std(ddof=0)
 
 # Replace zero std with 1 to avoid division by zero for constant columns.
 # A constant feature carries no information; scaling it to 0/NaN would lose

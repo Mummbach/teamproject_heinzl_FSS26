@@ -25,6 +25,7 @@ Output:    output/best_prd_model.pt
 
 import pickle
 import sys
+import importlib.util as _ilu
 from pathlib import Path
 
 import numpy as np
@@ -44,9 +45,9 @@ ICU_COLS = ["icu_micu", "icu_sicu", "icu_ccu", "icu_cvicu",
             "icu_micu_sicu", "icu_tsicu", "icu_neuro_sicu"]
 ICD_COLS = [f"icd_{cat}" for cat in ICD_CATEGORIES]
 ADM_COLS = ["adm_emergency", "adm_urgent", "adm_elective", "adm_observation"]
-import importlib.util as _ilu
 _spec = _ilu.spec_from_file_location("prd_model", Path(__file__).parent / "03_prd-model.py")
-_mod  = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_mod)
+_mod  = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
 PRDNet = _mod.PRDNet
 
 
@@ -482,8 +483,11 @@ if __name__ == "__main__":
     INPUT_DIM = next(iter(embedding_cache.values())).shape[0]  # 128
     model     = PRDNet(input_dim=INPUT_DIM, hidden_dim=HIDDEN_DIM)
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-    # pos_weight = neg/pos ratio (~3.23) to counteract class imbalance (23.7% long-stay)
-    loss_fn   = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([16560 / 5130]))
+    # pos_weight computed dynamically from training labels to counteract class imbalance
+    n_pos = int(labels.sum())
+    n_neg = len(labels) - n_pos
+    pos_weight = torch.tensor([n_neg / n_pos], dtype=torch.float32)
+    loss_fn   = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
     print(f"\nPRDNet  |  input={INPUT_DIM}  hidden={HIDDEN_DIM}  "
           f"params={sum(p.numel() for p in model.parameters()):,}")
@@ -524,7 +528,7 @@ if __name__ == "__main__":
 
     # ── Threshold tuning on best checkpoint ───────────────────────────────────
     print("\nTuning decision threshold on val set (best checkpoint)...")
-    model.load_state_dict(torch.load(ckpt_path))
+    model.load_state_dict(torch.load(ckpt_path, weights_only=True))
     model.eval()
     with torch.no_grad():
         pos_proto    = model.encode(val_pos_proto_raw)

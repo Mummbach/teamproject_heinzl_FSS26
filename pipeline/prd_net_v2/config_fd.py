@@ -100,7 +100,9 @@ MODEL = "linear"                       # linear | mlp
 MLP_HIDDEN = 32
 
 # ── Training (mirrors prd_net/04_prd-train.py) ────────────────────────────────
-# pos_weight = neg/pos ratio (~3.23) to counteract the 23.7% positive imbalance.
+# Reference ratio from the development cohort (neg=16560, pos=5130).
+# fd04_diff-train.py recomputes pos_weight from the actual training labels at
+# runtime, so this constant is never used directly — it documents the design intent.
 POS_WEIGHT = 16560 / 5130
 BATCH_SIZE = 64
 LR         = 1e-3

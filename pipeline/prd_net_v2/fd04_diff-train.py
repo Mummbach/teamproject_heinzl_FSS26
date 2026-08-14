@@ -93,7 +93,7 @@ if __name__ == "__main__":
     loader = torch.utils.data.DataLoader(ds, batch_size=C.BATCH_SIZE, shuffle=True)
 
     C.CKPT_DIR.mkdir(exist_ok=True)
-    best_f1, no_improve = 0.0, 0
+    best_f1, no_improve = -1.0, 0
     ckpt = C.checkpoint_path()
 
     print(f"\n{'Epoch':<8}{'TrainLoss':<12}{'ValF1':<10}Best")
@@ -123,6 +123,11 @@ if __name__ == "__main__":
             break
 
     # ── Threshold tuning on val (best checkpoint) ─────────────────────────────
+    if not Path(ckpt).exists():
+        raise FileNotFoundError(
+            f"No checkpoint written at {ckpt} — the model never improved F1 above 0.0. "
+            "Check data, class balance, and pos_weight."
+        )
     model.load_state_dict(torch.load(ckpt, weights_only=True)); model.eval()
     with torch.no_grad():
         vprob = torch.sigmoid(model(Xva_t)).numpy()

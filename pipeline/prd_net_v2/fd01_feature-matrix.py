@@ -60,6 +60,10 @@ def _build_window_array(ts: pd.DataFrame, stay_ids: np.ndarray,
 
     sub = ts[(ts["hour"] >= 0) & (ts["hour"] < window_hours)]
     sub = sub[sub["stay_id"].isin(set(stay_ids.tolist()))]
+    # Collapse duplicate (stay_id, hour) rows — MIMIC-IV can produce multiple
+    # charted values per hour for the same vital; last-write-wins on the array
+    # assignment below would give non-deterministic results without this step.
+    sub = sub.groupby(["stay_id", "hour"])[C.TS_FEATURES].mean().reset_index()
 
     # sub is already filtered to stay_ids, so every row resolves to a row index —
     # map stay_id -> row position and assign the whole block at once instead of

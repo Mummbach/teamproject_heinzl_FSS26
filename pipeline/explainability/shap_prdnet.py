@@ -147,6 +147,9 @@ class PRDNetSHAPWrapper(nn.Module):
         # to get the full fusion vector we need to also pass through static_branch.
         gru_hidden  = self.gru.gru(ts)[1][-1]              # (batch, hidden_size)
         static_out  = self.gru.static_branch(static)        # (batch, static_dim)
+        # NOTE: text branch omitted from embedding — use_text=True checkpoints will produce a size mismatch.
+        if getattr(self.gru, "use_text", False):
+            raise NotImplementedError("PRDNetSHAPWrapper does not support use_text=True checkpoints")
         embedding   = torch.cat([gru_hidden, static_out], dim=1)  # (batch, 128)
 
         logit, _, _ = self.prd(embedding, self.pos_proto, self.neg_proto)

@@ -164,6 +164,7 @@ print("  patient_mii_summary.csv")
 
 print("\nCreating patient phenotype embedding...")
 
+# NOTE: PMI is a linear combination of other features in this list — consider using only PMI + mean_irregularity to avoid near-singular covariance
 feature_cols = [
     "total_freq",
     "mean_coverage",

@@ -70,7 +70,7 @@ print(f"  Loaded from : {CHECKPOINT_PATH}")
 
 threshold = 0.5
 if THRESHOLD_PATH.exists():
-    threshold = torch.load(THRESHOLD_PATH)["threshold"]
+    threshold = torch.load(THRESHOLD_PATH, weights_only=True)["threshold"]
     print(f"  Decision threshold : {threshold:.2f}  (tuned on val set)")
 else:
     print(f"  Decision threshold : {threshold:.2f}  (default — run 04_prd-train.py to tune)")

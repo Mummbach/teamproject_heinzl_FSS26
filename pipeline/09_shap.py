@@ -109,8 +109,8 @@ shap_model.eval()
 print(f"\nBuilding background set (n={min(BG_SIZE, len(train_ds))})...")
 rng       = np.random.default_rng(SEED)
 bg_idx    = rng.choice(len(train_ds), size=min(BG_SIZE, len(train_ds)), replace=False)
-bg_ts     = torch.tensor(train_ds.ts_arr[bg_idx]).to(DEVICE)
-bg_static = torch.tensor(train_ds.static_arr[bg_idx]).to(DEVICE)
+bg_ts     = torch.tensor(train_ds.ts_arr[bg_idx], dtype=torch.float32).to(DEVICE)
+bg_static = torch.tensor(train_ds.static_arr[bg_idx], dtype=torch.float32).to(DEVICE)
 
 explainer = shap.GradientExplainer(shap_model, [bg_ts, bg_static])
 print("GradientExplainer created.")
@@ -170,7 +170,7 @@ print(f"\nSaved: output/explanations.parquet  ({len(explanations):,} rows)")
 
 print("\nGenerating SHAP summary plot...")
 test_static_shap = df_test[STATIC_FEATURES].values
-test_static_vals = X_test.drop(columns=["stay_id"]).values
+test_static_vals = X_test[STATIC_FEATURES].values
 
 shap.summary_plot(
     test_static_shap, test_static_vals,

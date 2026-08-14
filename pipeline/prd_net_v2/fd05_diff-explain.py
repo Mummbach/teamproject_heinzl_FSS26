@@ -209,7 +209,8 @@ if __name__ == "__main__":
 
     for case_name, i in patient_cases.items():
         y_prob  = float(probs[i])
-        y_logit = float(np.log(y_prob / (1.0 - y_prob)))   # exact inverse of sigmoid
+        _p = np.clip(y_prob, 1e-7, 1 - 1e-7)
+        y_logit = float(np.log(_p / (1.0 - _p)))
         y_true  = int(te["labels"][i])
         shap_row = shap_vals[i]
 
@@ -307,11 +308,12 @@ if __name__ == "__main__":
     frac_pos, mean_pred = calibration_curve(
         y_true_arr, probs, n_bins=N_BINS, strategy="uniform"
     )
-    bin_edges    = np.linspace(0, 1, N_BINS + 1)
-    bin_counts, _ = np.histogram(probs, bins=bin_edges)   # mirrors sklearn's right-closed last bin
-    n_ret         = len(frac_pos)
-    valid_counts  = np.array([bin_counts[k] for k in range(N_BINS) if bin_counts[k] > 0])[:n_ret]
-    ece           = float(
+    # Use sklearn's exact bin edges (right edge = 1+1e-8) so counts align with
+    # the returned frac_pos / mean_pred points one-to-one.
+    bin_edges_sk     = np.linspace(0.0, 1.0 + 1e-8, N_BINS + 1)
+    bin_counts_sk, _ = np.histogram(probs, bins=bin_edges_sk)
+    valid_counts     = bin_counts_sk[bin_counts_sk > 0]
+    ece              = float(
         np.sum(valid_counts * np.abs(frac_pos - mean_pred)) / valid_counts.sum()
     )
     print(f"  ECE (Expected Calibration Error) = {ece:.4f}")

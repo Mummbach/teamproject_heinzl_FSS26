@@ -32,6 +32,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+from sklearn.linear_model import LogisticRegression
 
 sys.path.append(str(Path(__file__).parent))
 import config_fd as C
@@ -119,9 +120,15 @@ def load_trained(split: str, train_split: str = "train") -> dict:
     model.eval()
     thr = torch.load(C.threshold_path(), weights_only=True)["threshold"]
 
-    coef = model.linear.weight.detach().numpy().ravel()
-    bias = float(model.linear.bias.item())
-    contribs = coef[None, :] * (Xq - Xtr.mean(axis=0)[None, :])
+    if C.MODEL == "linear":
+        coef = model.linear.weight.detach().numpy().ravel()
+        bias = float(model.linear.bias.item())
+        contribs = coef[None, :] * (Xq - Xtr.mean(axis=0)[None, :])
+    else:
+        raise NotImplementedError(
+            "MLP model does not support exact w*(x-mean) attribution. "
+            "Use aggregate SHAP instead, or set MODEL='linear'."
+        )
 
     return {
         "train": tr, "query": qy, "Xtr": Xtr, "Xq": Xq,
@@ -184,7 +191,6 @@ def build_model(in_dim: int, model: str | None = None) -> nn.Module:
 
 def build_logreg():
     """sklearn LogisticRegression reference (class-balanced to mirror pos_weight)."""
-    from sklearn.linear_model import LogisticRegression
     return LogisticRegression(max_iter=2000, class_weight="balanced", C=1.0)
 
 

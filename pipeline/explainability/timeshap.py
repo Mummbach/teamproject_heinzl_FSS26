@@ -51,7 +51,8 @@ from multimodal_utils import ICUDataset, load_multimodal_model
 
 SEED          = 42
 N_PATIENTS    = 30
-N_SHAP_SAMPLE = 128
+N_SHAP_SAMPLE = 512  # 128 samples is too few for stable 48-feature Shapley estimates; 512+ recommended
+N_ICU_HOURS   = 48
 DEVICE        = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 torch.manual_seed(SEED)
@@ -100,7 +101,7 @@ else:
     preds = pd.read_parquet(preds_path)
 
 
-def make_ts_predictor(static_vec: np.ndarray):
+def make_ts_predictor(static_vec: np.ndarray, patient_ts_actual: np.ndarray):
     static_batch = torch.tensor(static_vec, dtype=torch.float32).unsqueeze(0).to(DEVICE)
 
     def predict(masks: np.ndarray) -> np.ndarray:
@@ -123,7 +124,7 @@ def make_ts_predictor(static_vec: np.ndarray):
     return predict
 
 
-background_mask = np.zeros((1, 48), dtype=np.float32)
+background_mask = np.zeros((1, N_ICU_HOURS), dtype=np.float32)
 
 test_preds = (preds[preds["split"] == "test"]
               .merge(y_test[["stay_id", "los_gt7"]], on="stay_id")
@@ -145,15 +146,14 @@ test_sid_to_idx = {sid: i for i, sid in enumerate(test_ds.stay_ids)}
 
 def compute_timeshap(stay_id: int) -> np.ndarray:
     """Returns (48,) array of Shapley values, one per ICU hour."""
-    global patient_ts_actual
-    idx = test_sid_to_idx[stay_id]
+    idx               = test_sid_to_idx[stay_id]
     patient_ts_actual = test_ds.ts_arr[idx]
     static_vec        = test_ds.static_arr[idx]
 
-    predictor   = make_ts_predictor(static_vec)
+    predictor   = make_ts_predictor(static_vec, patient_ts_actual)
     explainer   = shap.KernelExplainer(predictor, background_mask)
     shap_values = explainer.shap_values(
-        np.ones((1, 48), dtype=np.float32),
+        np.ones((1, N_ICU_HOURS), dtype=np.float32),
         nsamples=N_SHAP_SAMPLE,
         silent=True,
     )
@@ -175,29 +175,29 @@ for case_name, row in spotlight.items():
 
     ax = axes[0]
     colors = ["#d73027" if v >= 0 else "#4575b4" for v in sv]
-    ax.bar(range(48), sv, color=colors, width=0.8)
+    ax.bar(range(N_ICU_HOURS), sv, color=colors, width=0.8)
     ax.axhline(0, color="black", linewidth=0.8)
-    ax.set_xlim(-0.5, 47.5)
+    ax.set_xlim(-0.5, N_ICU_HOURS - 0.5)
     ax.set_ylabel("SHAP value (contribution to prediction)", fontsize=10)
     truth_str = ">7d (prolonged)" if y_true == 1 else "≤7d (normal)"
     ax.set_title(
         f"TimeSHAP — {case_name.replace('_', ' ').title()}\n"
         f"stay_id={sid}  |  predicted={y_prob:.3f}  |  actual={truth_str}",
         fontsize=11)
-    ax.set_xticks(range(0, 48, 4))
-    ax.set_xticklabels([f"h{h}" for h in range(0, 48, 4)], fontsize=8)
+    ax.set_xticks(range(0, N_ICU_HOURS, 4))
+    ax.set_xticklabels([f"h{h}" for h in range(0, N_ICU_HOURS, 4)], fontsize=8)
 
     ax2 = axes[1]
     cumulative = np.cumsum(sv)
-    ax2.plot(range(48), cumulative, color="#555555", linewidth=1.5)
-    ax2.fill_between(range(48), 0, cumulative, where=(cumulative >= 0), alpha=0.3, color="#d73027")
-    ax2.fill_between(range(48), 0, cumulative, where=(cumulative < 0),  alpha=0.3, color="#4575b4")
+    ax2.plot(range(N_ICU_HOURS), cumulative, color="#555555", linewidth=1.5)
+    ax2.fill_between(range(N_ICU_HOURS), 0, cumulative, where=(cumulative >= 0), alpha=0.3, color="#d73027")
+    ax2.fill_between(range(N_ICU_HOURS), 0, cumulative, where=(cumulative < 0),  alpha=0.3, color="#4575b4")
     ax2.axhline(0, color="black", linewidth=0.8)
-    ax2.set_xlim(-0.5, 47.5)
+    ax2.set_xlim(-0.5, N_ICU_HOURS - 0.5)
     ax2.set_ylabel("Cumulative SHAP", fontsize=9)
     ax2.set_xlabel("Hour of ICU stay", fontsize=10)
-    ax2.set_xticks(range(0, 48, 4))
-    ax2.set_xticklabels([f"h{h}" for h in range(0, 48, 4)], fontsize=8)
+    ax2.set_xticks(range(0, N_ICU_HOURS, 4))
+    ax2.set_xticklabels([f"h{h}" for h in range(0, N_ICU_HOURS, 4)], fontsize=8)
 
     plt.tight_layout()
     plt.savefig(EXPLAIN_OUT / f"timeshap_patient_{case_name}.png", dpi=150, bbox_inches="tight")
@@ -207,7 +207,7 @@ for case_name, row in spotlight.items():
 
 print(f"\nPopulation heatmap ({N_PATIENTS} patients)...")
 
-all_sv   = np.zeros((N_PATIENTS, 48), dtype=np.float32)
+all_sv   = np.zeros((N_PATIENTS, N_ICU_HOURS), dtype=np.float32)
 all_prob = []
 
 for i, sid in enumerate(heatmap_pids):
@@ -218,7 +218,7 @@ for i, sid in enumerate(heatmap_pids):
 
 print()
 
-sv_df = pd.DataFrame(all_sv, columns=[f"h{t}" for t in range(48)])
+sv_df = pd.DataFrame(all_sv, columns=[f"h{t}" for t in range(N_ICU_HOURS)])
 sv_df.insert(0, "stay_id", heatmap_pids)
 sv_df.insert(1, "y_prob",  all_prob)
 sv_df.to_parquet(EXPLAIN_OUT / "timeshap_values.parquet", index=False)
@@ -230,8 +230,8 @@ prob_sorted  = np.array(all_prob)[sorted_order]
 
 fig, ax = plt.subplots(figsize=(14, 6))
 im = ax.imshow(heatmap_data, aspect="auto", cmap="YlOrRd", interpolation="nearest")
-ax.set_xticks(range(0, 48, 4))
-ax.set_xticklabels([f"h{h}" for h in range(0, 48, 4)], fontsize=8)
+ax.set_xticks(range(0, N_ICU_HOURS, 4))
+ax.set_xticklabels([f"h{h}" for h in range(0, N_ICU_HOURS, 4)], fontsize=8)
 ax.set_yticks(range(N_PATIENTS))
 ax.set_yticklabels([f"{p:.2f}" for p in prob_sorted], fontsize=7)
 ax.set_xlabel("Hour of ICU stay (first 48 h)", fontsize=11)
@@ -253,17 +253,17 @@ mean_abs_sv = np.abs(all_sv).mean(axis=0)
 top5_hours  = np.argsort(mean_abs_sv)[::-1][:5]
 
 fig, ax = plt.subplots(figsize=(13, 4))
-bar_colors = ["#d73027" if h in top5_hours else "#7faacc" for h in range(48)]
-ax.bar(range(48), mean_abs_sv, color=bar_colors, width=0.8)
-ax.set_xticks(range(0, 48, 4))
-ax.set_xticklabels([f"h{h}" for h in range(0, 48, 4)], fontsize=9)
+bar_colors = ["#d73027" if h in top5_hours else "#7faacc" for h in range(N_ICU_HOURS)]
+ax.bar(range(N_ICU_HOURS), mean_abs_sv, color=bar_colors, width=0.8)
+ax.set_xticks(range(0, N_ICU_HOURS, 4))
+ax.set_xticklabels([f"h{h}" for h in range(0, N_ICU_HOURS, 4)], fontsize=9)
 ax.set_xlabel("Hour of ICU stay", fontsize=11)
 ax.set_ylabel("Mean |SHAP value|", fontsize=11)
 ax.set_title(
     f"TimeSHAP — Average Hourly Importance (n={N_PATIENTS} patients)\n"
     f"Top-5 hours highlighted in red: {sorted(top5_hours.tolist())}",
     fontsize=12)
-ax.set_xlim(-0.5, 47.5)
+ax.set_xlim(-0.5, N_ICU_HOURS - 0.5)
 plt.tight_layout()
 plt.savefig(EXPLAIN_OUT / "timeshap_hourly_importance.png", dpi=150, bbox_inches="tight")
 plt.close()

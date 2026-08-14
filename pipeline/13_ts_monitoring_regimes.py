@@ -26,6 +26,8 @@ Outputs:
 
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
@@ -156,7 +158,7 @@ for (sid, feat), g in events.groupby(["stay_id", "feature"]):
         mean_gap = OBS_WINDOW
         max_gap = OBS_WINDOW
 
-    sampling_rate = len(hours) / OBS_WINDOW
+    sampling_rate = len(g) / OBS_WINDOW
 
     # regime classification
     if mean_gap <= 1.5:
@@ -373,7 +375,6 @@ sns.heatmap(
 plt.title("ICU Monitoring Structure Heatmap")
 
 plt.savefig(FIG_DIR / "monitoring_heatmap.png")
-plt.show()
 plt.close()
 
 

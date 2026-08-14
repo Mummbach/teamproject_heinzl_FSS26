@@ -103,7 +103,7 @@ bg_mean = bg_ts.mean(axis=0)   # (48, 12)
 # TIMESHAP WRAPPER
 # ═══════════════════════════════════════════════════════════════════════
 
-def make_ts_predictor(static_vec: np.ndarray):
+def make_ts_predictor(static_vec: np.ndarray, patient_ts_actual: np.ndarray):
     static_batch = torch.tensor(static_vec, dtype=torch.float32).unsqueeze(0).to(DEVICE)
 
     def predict(masks: np.ndarray) -> np.ndarray:
@@ -118,14 +118,14 @@ def make_ts_predictor(static_vec: np.ndarray):
             ts_t     = torch.tensor(ts_batch, dtype=torch.float32).to(DEVICE)
             s_t      = static_batch.expand(b, -1)
             with torch.no_grad():
-                logits = model(ts_t, s_t).cpu().numpy()
+                logits = model(ts_t, s_t).cpu().numpy().flatten()
             probs[start:start + b] = 1 / (1 + np.exp(-logits))
         return probs
 
     return predict
 
 
-background_mask = np.ones((1, 48), dtype=np.float32)
+background_mask = np.zeros((1, 48), dtype=np.float32)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -158,12 +158,11 @@ test_sid_to_idx = {sid: i for i, sid in enumerate(test_ds.stay_ids)}
 
 def compute_timeshap(stay_id: int) -> np.ndarray:
     """Returns (48,) array of Shapley values — one per ICU hour."""
-    global patient_ts_actual
     idx = test_sid_to_idx[stay_id]
     patient_ts_actual = test_ds.ts_arr[idx]          # (48, 12)
     static_vec        = test_ds.static_arr[idx]       # (F,)
 
-    predictor = make_ts_predictor(static_vec)
+    predictor = make_ts_predictor(static_vec, patient_ts_actual)
 
     explainer   = shap.KernelExplainer(predictor, background_mask)
     shap_values = explainer.shap_values(

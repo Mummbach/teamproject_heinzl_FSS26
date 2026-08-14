@@ -130,7 +130,7 @@ with st.expander("Global overview (test)", expanded=False):
     st.info(f"Distance view (‖Δpos‖<‖Δneg‖): F1 = {glob['distance_view_f1']:.3f}  ·  "
             f"difference model: F1 = {glob['difference_view_f1']:.3f}. "
             "Only the difference view names the responsible features.")
-    st.plotly_chart(R.fig_importance(glob, top=top_n), width='stretch')
+    st.plotly_chart(R.fig_importance(glob, top=top_n), use_container_width=True)
 
 # ── Per-patient view: Patient -> Prediction -> Explanation -> Peer Group -> Delta ──
 
@@ -162,13 +162,13 @@ if feats:
         "Patient": rec["patient"][f],
         "Long-stay proto": rec["long_prototype"][f],
         "Short-stay proto": rec["short_prototype"][f],
-    } for f in feats]), hide_index=True, width='stretch')
+    } for f in feats]), hide_index=True, use_container_width=True)
     note = R.categorical_note(rec, top_n)
     if note:
         st.caption(note)
 else:
     st.info(R.NO_POSITIONABLE_NOTE.format(n=top_n))
-st.plotly_chart(R.fig_contributions(rec, top_n), width='stretch')
+st.plotly_chart(R.fig_contributions(rec, top_n), use_container_width=True)
 cs = rec["cxr_support"]
 if cs["has_report"]:
     if cs["findings"]:
@@ -213,13 +213,13 @@ if active:
     st.markdown(f"#### Peer {peer_id} vs. this patient")
     st.write(R.peer_info_line(peer_id, peers))
     st.dataframe(pd.DataFrame(R.peer_comparison_rows(rec, peer_id, peers, top_n)),
-                 hide_index=True, width='stretch')
+                 hide_index=True, use_container_width=True)
     st.caption("Peers are training patients, so their stay length is observed, not predicted.")
 
 # 5. Delta / Difference — where the patient sits between the two prototypes
 st.markdown("### Delta / Difference")
 if R.positionable_features(rec, top_n):
-    st.plotly_chart(R.fig_prototype_position(rec, top_n), width='stretch')
+    st.plotly_chart(R.fig_prototype_position(rec, top_n), use_container_width=True)
     note = R.categorical_note(rec, top_n)
     if note:
         st.caption(note)

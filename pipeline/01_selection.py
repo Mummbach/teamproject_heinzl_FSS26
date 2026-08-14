@@ -27,7 +27,7 @@ Output:     output/cohort.csv  +  output/cohort_stay_ids.txt
 """
 
 import pandas as pd
-from config import HOSP_DIR, ICU_DIR, OUTPUT_DIR
+from config import HOSP_DIR, ICU_DIR, OUTPUT_DIR, THRESHOLD
 
 # ── Early deaths bias check ───────────────────────────────────────────────────
 # Patients who die between 48h and 7d after ICU admission have los_gt7 = 0,
@@ -167,7 +167,7 @@ else:
 
 
 # Create binary label LOS > 7 days
-df["los_gt7"] = (df["los"] > 7).astype(int)
+df[f"los_gt{THRESHOLD}"] = (df["los"] > THRESHOLD).astype(int)
 
 label_counts = df["los_gt7"].value_counts().sort_index()
 print(f"\nLabel distribution:")

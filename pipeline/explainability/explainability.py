@@ -70,6 +70,10 @@ X_train = pd.read_parquet(OUTPUT_DIR / "X_train_scaled.parquet")
 y_test = pd.read_parquet(OUTPUT_DIR / "y_test.parquet")
 y_train = pd.read_parquet(OUTPUT_DIR / "y_train.parquet")
 ts = pd.read_parquet(OUTPUT_DIR / "timeseries.parquet")
+required = [EXPLAIN_OUT / "explanations.parquet", EXPLAIN_OUT / "predictions.parquet"]  # adjust filenames
+for p in required:
+    if not p.exists():
+        raise FileNotFoundError(f"Required input missing: {p}. Run timeshap.py first.")
 explanations = pd.read_parquet(EXPLAIN_OUT / "explanations.parquet")
 predictions = pd.read_parquet(EXPLAIN_OUT / "predictions.parquet")
 
@@ -87,6 +91,7 @@ if CXR_FEATURES:
 test_expl = explanations[explanations["split"] == "test"].reset_index(drop=True)
 test_preds = predictions[predictions["split"] == "test"].reset_index(drop=True)
 test_preds = test_preds.merge(y_test[["stay_id", "los_gt7"]], on="stay_id", how="left")
+assert test_preds["los_gt7"].notna().all(), "Merge failed: some stay_ids missing from y_test — check split alignment"
 
 
 model = load_multimodal_model(
@@ -123,7 +128,10 @@ patient_cases = {
 }
 
 test_expl_indexed = test_expl.set_index("stay_id")
-base_value = float(test_preds["y_prob"].mean())
+if not test_expl_indexed.index.is_unique:
+    test_expl_indexed = test_expl_indexed[~test_expl_indexed.index.duplicated(keep="first")]
+# explainer.expected_value = E[f(x)] over training background
+base_value = float(explainer.expected_value) if not isinstance(explainer.expected_value, (list, np.ndarray)) else float(explainer.expected_value[0])
 TOP_N_WATERFALL = 15
 
 for case_name, patient_row in patient_cases.items():
@@ -288,10 +296,7 @@ fraction_of_positives, mean_predicted_value = calibration_curve(
 )
 
 bin_edges = np.linspace(0, 1, N_BINS + 1)
-bin_counts = np.zeros(N_BINS, dtype=int)
-for i in range(N_BINS):
-    mask = (y_prob_test >= bin_edges[i]) & (y_prob_test < bin_edges[i + 1])
-    bin_counts[i] = mask.sum()
+bin_counts, _ = np.histogram(y_prob_test, bins=bin_edges)
 
 n_returned = len(fraction_of_positives)
 valid_counts = np.array([bin_counts[i] for i in range(N_BINS) if bin_counts[i] > 0])[:n_returned]

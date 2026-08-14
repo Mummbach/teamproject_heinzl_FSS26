@@ -252,11 +252,19 @@ if __name__ == "__main__": # only run if directly started from this file
     # 5 is the minimum to form a meaningful training signal — below that
     # the contrastive loss has too few examples to learn from
     print(f"\n  Coverage (>= 5 peers per class):")
-    print(f"    Positive peers : {ge5_pos/total*100:.1f}%  "
+    if total > 0:
+        rate_pos = ge5_pos / total
+    else:
+        rate_pos = 0.0
+    if total > 0:
+        rate_neg = ge5_neg / total
+    else:
+        rate_neg = 0.0
+    print(f"    Positive peers : {rate_pos*100:.1f}%  "
           f"({ge5_pos:,} of {total:,} patients)")
-    print(f"    Negative peers : {ge5_neg/total*100:.1f}%  "
+    print(f"    Negative peers : {rate_neg*100:.1f}%  "
           f"({ge5_neg:,} of {total:,} patients)")
-    if ge5_pos / total < 0.9 or ge5_neg / total < 0.9:
+    if rate_pos < 0.9 or rate_neg < 0.9:
         print("  WARNING: <90% coverage — consider loosening hard/age filters before continuing.")
 
     # ── Save ──────────────────────────────────────────────────────────────────

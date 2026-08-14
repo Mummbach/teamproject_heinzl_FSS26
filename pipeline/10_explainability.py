@@ -108,8 +108,8 @@ print("Model loaded.")
 train_ds  = ICUDataset(X_train, y_train, ts, TS_FEATURES)
 rng       = np.random.default_rng(SEED)
 bg_idx    = rng.choice(len(train_ds), size=min(200, len(train_ds)), replace=False)
-bg_ts     = torch.tensor(train_ds.ts_arr[bg_idx]).to(DEVICE)
-bg_static = torch.tensor(train_ds.static_arr[bg_idx]).to(DEVICE)
+bg_ts     = torch.tensor(train_ds.ts_arr[bg_idx], dtype=torch.float32).to(DEVICE)
+bg_static = torch.tensor(train_ds.static_arr[bg_idx], dtype=torch.float32).to(DEVICE)
 
 explainer = shap.GradientExplainer(shap_model, [bg_ts, bg_static])
 print("GradientExplainer created.")
@@ -141,6 +141,7 @@ test_expl_indexed = test_expl.set_index("stay_id")
 # Expected output value = mean(sigmoid) across background → approx base value
 # We compute it as mean y_prob over the full test set (reasonable proxy)
 base_value = float(test_preds["y_prob"].mean())
+# base_value is the mean test prediction — an approximation of E[f(x)] over the background set
 
 TOP_N_WATERFALL = 15   # features shown in each waterfall
 
@@ -277,8 +278,8 @@ test_ds = ICUDataset(X_test, y_test, ts, TS_FEATURES)
 
 rng_hm     = np.random.default_rng(SEED + 1)
 hm_idx     = rng_hm.choice(len(test_ds), size=min(N_HEATMAP, len(test_ds)), replace=False)
-hm_ts      = torch.tensor(test_ds.ts_arr[hm_idx]).to(DEVICE)    # (N, 48, 12)
-hm_static  = torch.tensor(test_ds.static_arr[hm_idx]).to(DEVICE)  # (N, F)
+hm_ts      = torch.tensor(test_ds.ts_arr[hm_idx], dtype=torch.float32).to(DEVICE)    # (N, 48, 12)
+hm_static  = torch.tensor(test_ds.static_arr[hm_idx], dtype=torch.float32).to(DEVICE)  # (N, F)
 
 print(f"  Running GradientExplainer on {len(hm_idx)} test patients...")
 

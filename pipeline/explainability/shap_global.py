@@ -68,6 +68,7 @@ y_test  = pd.read_parquet(OUTPUT_DIR / "y_test.parquet")
 ts      = pd.read_parquet(OUTPUT_DIR / "timeseries.parquet")
 
 TS_FEATURES     = [c for c in ts.columns if c not in ["stay_id", "hour"]]
+# Always derive feature list from X_train — X_test must have the same columns
 STATIC_FEATURES = [c for c in X_train.columns if c != "stay_id"]
 
 groups               = get_cxr_feature_groups(STATIC_FEATURES)

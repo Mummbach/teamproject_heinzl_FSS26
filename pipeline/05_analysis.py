@@ -206,8 +206,6 @@ print(SEP)
 
 X_train_path = OUTPUT_DIR / "X_train.parquet"
 if X_train_path.exists():
-    X_train = pd.read_parquet(X_train_path)
-    y_train = pd.read_parquet(OUTPUT_DIR / "y_train.parquet")
 
     feature_cols = [c for c in X_train.columns if c != "stay_id"]
     merged = X_train.merge(y_train[["stay_id", "los_gt7"]], on="stay_id")

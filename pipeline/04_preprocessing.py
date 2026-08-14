@@ -148,7 +148,7 @@ static["adm_observation"] = adm.str.contains("OBSERVATION").astype(int)
 loc = cohort["admission_location"].fillna("UNKNOWN").str.upper().str.strip()
 static["loc_emergency_room"] = (loc == "EMERGENCY ROOM").astype(int)
 static["loc_transfer"]       = loc.str.contains("TRANSFER").astype(int)
-static["loc_referral"]       = loc.str.contains("REFERRAL").astype(int)
+static["loc_referral"]       = (loc.str.contains("REFERRAL") & (loc != "WALK-IN/SELF REFERRAL")).astype(int)
 static["loc_walk_in"]        = (loc == "WALK-IN/SELF REFERRAL").astype(int)
 static["loc_other"]          = (
     ~loc.isin(["EMERGENCY ROOM", "WALK-IN/SELF REFERRAL"]) &
@@ -240,10 +240,10 @@ print(f"  train : {len(X_train):>7,} stays")
 print(f"  val   : {len(X_val):>7,} stays")
 print(f"  test  : {len(X_test):>7,} stays")
 
-# Identify columns that need imputation (any NaN present in train)
+# Identify columns that need imputation (any NaN present in any split)
 impute_cols = [
     c for c in all_feature_cols
-    if not c.endswith("_missing") and X_train[c].isna().any()
+    if not c.endswith("_missing") and pd.concat([X_train[c], X_val[c], X_test[c]]).isna().any()
 ]
 print(f"\n  Columns to impute: {len(impute_cols)}")
 print(f"  Strategy: {IMPUTATION_STRATEGY}")

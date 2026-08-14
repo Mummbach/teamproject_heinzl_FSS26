@@ -3,7 +3,7 @@ Hyperparameter Search — GRU Model (Optuna)
 Searches for optimal hyperparameters using Bayesian optimization (Optuna).
 Optimizes validation F1 score.
 
-Respects the same flags as 06_model_gru.py:
+Respects the same flags as 07_model_gru.py:
   USE_TEXT  — include CXR text branch
   CXR_ONLY  — restrict cohort to patients with CXR report
 
@@ -38,6 +38,7 @@ N_TRIALS   = 100     # number of hyperparameter combinations to try
 EPOCHS     = 30      # shorter training per trial for speed
 SEED       = 42
 DEVICE     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+CXR_EMB_DIM = 1536
 
 torch.manual_seed(SEED)
 np.random.seed(SEED)
@@ -66,7 +67,7 @@ class ICUDataset(Dataset):
                 self.ts_arr[i] = ts_pivot.loc[sid].values
 
         cxr_cols = [c for c in cxr.columns if c.startswith("cxr_")] if cxr is not None else []
-        emb_dim  = len(cxr_cols) if cxr_cols else 1536
+        emb_dim  = len(cxr_cols) if cxr_cols else CXR_EMB_DIM
         self.cxr_arr = np.zeros((len(stays_ordered), emb_dim), dtype=np.float32)
         if cxr is not None and cxr_cols:
             cxr_indexed = cxr.set_index("stay_id")
@@ -102,7 +103,7 @@ class GRUModel(nn.Module):
         )
         if use_text:
             self.text_branch = nn.Sequential(
-                nn.Linear(1536, text_dim), nn.ReLU(), nn.Dropout(dropout),
+                nn.Linear(CXR_EMB_DIM, text_dim), nn.ReLU(), nn.Dropout(dropout),
             )
         fusion = hidden_size + static_dim + (text_dim if use_text else 0)
         self.classifier = nn.Sequential(
@@ -144,6 +145,8 @@ STATIC_INPUT_SIZE = X_train.shape[1] - 1
 
 n_pos = int(y_train["los_gt7"].sum())
 n_neg = len(y_train) - n_pos
+if n_pos == 0:
+    raise ValueError("Training set has no positive examples")
 pos_weight = torch.tensor([n_neg / n_pos], dtype=torch.float32).to(DEVICE)
 print(f"  pos_weight = {pos_weight.item():.2f}")
 
@@ -154,7 +157,10 @@ def objective(trial):
     hidden_size = trial.suggest_categorical("hidden_size", [32, 64, 128])
     num_layers  = trial.suggest_int("num_layers", 1, 2)
     static_dim  = trial.suggest_categorical("static_dim", [32, 64, 128])
-    text_dim    = trial.suggest_categorical("text_dim", [32, 64, 128])
+    if use_text_actual:
+        text_dim = trial.suggest_categorical("text_dim", [32, 64, 128])
+    else:
+        text_dim = 0
     dropout     = trial.suggest_float("dropout", 0.1, 0.5, step=0.1)
     lr          = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
     batch_size  = trial.suggest_categorical("batch_size", [32, 64, 128])

@@ -20,6 +20,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 from pathlib import Path
+import sys
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
 from config import OUTPUT_DIR, HOSP_DIR, ICU_DIR
 
 ANALYSIS_DIR = OUTPUT_DIR / "analysis"
@@ -137,7 +139,8 @@ print("SECTION 3 — Feature analysis (X_train)")
 print(SEP)
 
 X_train_path = OUTPUT_DIR / "X_train.parquet"
-if not X_train_path.exists():
+X_train_available = X_train_path.exists()
+if not X_train_available:
     print("  X_train.parquet not found — run 04_preprocessing.py first.")
 else:
     X_train = pd.read_parquet(X_train_path)
@@ -204,8 +207,9 @@ print(f"\n{SEP}")
 print("SECTION 4 — Feature correlations with los_gt7 (X_train)")
 print(SEP)
 
-X_train_path = OUTPUT_DIR / "X_train.parquet"
-if X_train_path.exists():
+if not X_train_available:
+    print("  X_train.parquet not found — run 04_preprocessing.py first.")
+else:
 
     feature_cols = [c for c in X_train.columns if c != "stay_id"]
     merged = X_train.merge(y_train[["stay_id", "los_gt7"]], on="stay_id")

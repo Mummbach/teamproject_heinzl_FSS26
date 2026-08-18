@@ -25,13 +25,16 @@ import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     roc_auc_score, average_precision_score,
 )
 from pathlib import Path
+import sys
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
 from config import OUTPUT_DIR
+from multimodal_utils import ICUDataset, GRUModel
 
 # ── Reproducibility ───────────────────────────────────────────────────
 SEED = 42
@@ -39,7 +42,7 @@ torch.manual_seed(SEED)
 np.random.seed(SEED)
 
 # ── Hourly time-series branch ─────────────────────────────────────────
-# True  — GRU processes 48h × 12 vital features (stündliche Zeitreihe)
+# True  — GRU processes 48h × 12 vital features (hourly time series)
 # False — static branch only; GRU is disabled for ablation comparison
 USE_HOURLY_TIMESERIES = True
 
@@ -56,111 +59,9 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {DEVICE}")
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# DATASET
-# ═══════════════════════════════════════════════════════════════════════
-
-class ICUDataset(Dataset):
-    """
-    Returns one sample per ICU stay:
-      ts     — (48, 12)  float32 tensor  — hourly vitals
-      static — (F,)      float32 tensor  — scaled static features
-      label  — scalar    float32         — los_gt7 (0 or 1)
-    """
-
-    def __init__(self, X_static: pd.DataFrame, y: pd.DataFrame,
-                 ts: pd.DataFrame, ts_features: list[str]):
-        self.stay_ids   = X_static["stay_id"].values
-        self.static_arr = X_static.drop(columns=["stay_id"]).values.astype(np.float32)
-        self.labels     = y.set_index("stay_id").loc[self.stay_ids, "los_gt7"].values.astype(np.float32)
-        self.ts_features = ts_features
-
-        # Build (stays, 48, 12) array from long-format timeseries
-        # Fill remaining NaN (vitals with no data at all) with 0
-        ts_pivot = (
-            ts[ts["stay_id"].isin(self.stay_ids)]
-            .sort_values(["stay_id", "hour"])
-            .set_index(["stay_id", "hour"])[ts_features]
-            .fillna(0.0)
-        )
-        # Pivot to (stay, hour, feature) — shape (N, 48, 12)
-        stays_ordered = list(self.stay_ids)
-        self.ts_arr = np.zeros(
-            (len(stays_ordered), 48, len(ts_features)), dtype=np.float32
-        )
-        for i, sid in enumerate(stays_ordered):
-            if sid in ts_pivot.index.get_level_values("stay_id"):
-                self.ts_arr[i] = ts_pivot.loc[sid].values
-
-    def __len__(self):
-        return len(self.stay_ids)
-
-    def __getitem__(self, idx):
-        return (
-            torch.tensor(self.ts_arr[idx]),      # (48, 12)
-            torch.tensor(self.static_arr[idx]),  # (F,)
-            torch.tensor(self.labels[idx]),      # scalar
-        )
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# MODEL
-# ═══════════════════════════════════════════════════════════════════════
-
-class GRUModel(nn.Module):
-    """
-    GRU encoder for time-series + linear branch for static features.
-
-    Args:
-        ts_input_size   : number of time-series features (12)
-        static_input_size: number of static features
-        hidden_size     : GRU hidden state dimension
-        num_layers      : number of stacked GRU layers
-        static_dim      : static branch embedding size
-        dropout         : dropout probability (applied between layers)
-    """
-
-    def __init__(self, ts_input_size: int, static_input_size: int,
-                 hidden_size: int, num_layers: int,
-                 static_dim: int, dropout: float,
-                 use_gru: bool = True):
-        super().__init__()
-        self.use_gru = use_gru
-
-        if use_gru:
-            self.gru = nn.GRU(
-                input_size=ts_input_size,
-                hidden_size=hidden_size,
-                num_layers=num_layers,
-                batch_first=True,
-                dropout=dropout if num_layers > 1 else 0.0,
-            )
-
-        self.static_branch = nn.Sequential(
-            nn.Linear(static_input_size, static_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-        )
-
-        fusion_input = (hidden_size if use_gru else 0) + static_dim
-        self.classifier = nn.Sequential(
-            nn.Dropout(dropout),
-            nn.Linear(fusion_input, 32),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(32, 1),
-        )
-
-    def forward(self, ts, static):
-        static_out = self.static_branch(static)
-        if self.use_gru:
-            _, h_n  = self.gru(ts)
-            gru_out = h_n[-1]
-            fused   = torch.cat([gru_out, static_out], dim=1)
-        else:
-            fused = static_out
-        return self.classifier(fused).squeeze(1)
-
+# ICUDataset and GRUModel are shared with 08b_hyperparameter_search.py and the
+# explainability scripts (09_shap.py, 10_explainability.py, 11_timeshap.py) —
+# see multimodal_utils.py for the single source of truth.
 
 # ═══════════════════════════════════════════════════════════════════════
 # METRICS

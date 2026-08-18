@@ -42,7 +42,7 @@ TS_FEATURES = [
 STATIC_FEATURES = ["age"]
 
 # ── Optional CXR-derived static features ──────────────────────────────────────
-# Interpretable per-report flags from 01d_extract_radiology_features.py
+# Interpretable per-report flags from baseline/01d_extract_radiology_features.py
 # (pathology/severity/progression/device mentions), keyed by stay_id. Unlike
 # icd_*/icu_*/adm_* these are NOT part of the hard filter, so a peer-group
 # delta carries real signal (e.g. "pneumonia mentioned, vs. 15% of long-stay

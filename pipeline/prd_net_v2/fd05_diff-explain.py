@@ -172,7 +172,7 @@ if __name__ == "__main__":
         print(f"\n  {n_consistent}/{len(conf)} net-direction consistent with the long-stay label.")
 
     # ── VISUAL EXPORTS — best practices from GRU baseline ─────────────────────
-    # Mirrors shap_global.py / explainability.py: beeswarm summary, waterfall
+    # Mirrors baseline/09_shap.py / baseline/10_explainability.py: beeswarm summary, waterfall
     # plots for 3 representative patients, dependence plots, and calibration.
     C.EXPORT_DIR.mkdir(exist_ok=True)
     TAG = f"_{W}h"

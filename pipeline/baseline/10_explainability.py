@@ -15,7 +15,7 @@ SHAP beeswarm summary produced by 09_shap.py.
                          actual outcome frequencies
 
 Run AFTER:  09_shap.py  (explanations.parquet must exist)
-            08_model_gru.py  (best_gru_model.pt, predictions.parquet)
+            07_model_gru.py  (best_gru_model.pt, predictions.parquet)
 
 Input:   output/explanations.parquet
          output/predictions.parquet
@@ -46,6 +46,9 @@ try:
 except ImportError:
     raise ImportError("Install shap: pip install shap")
 
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
 from config import OUTPUT_DIR
 from multimodal_utils import (
     ICUDataset, GRUModel, SHAPWrapper, load_multimodal_model,

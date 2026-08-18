@@ -27,7 +27,10 @@ import torch
 from transformers import AutoTokenizer, AutoModel
 from tqdm import tqdm
 
-from config import OUTPUT_DIR
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
+from config import OUTPUT_DIR, extract_section
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Paths
@@ -76,24 +79,6 @@ model = AutoModel.from_pretrained(MODEL_NAME)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
 model.eval()
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Section extraction
-# ──────────────────────────────────────────────────────────────────────────────
-
-import re
-
-def extract_section(text, section):
-    if not isinstance(text, str):
-        return ""
-
-    text = text.replace("\r", "\n")
-
-    pattern = rf"{section}\s*:\s*(.*?)(?=\n[A-Z ]+\s*:|\Z)"
-
-    match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
-
-    return match.group(1).strip() if match else ""
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Embedding function

@@ -2,13 +2,13 @@
 PRD-Net — Step 1 & 2: Extract GRU Embeddings
 =============================================
 Purpose:
-  The trained GRU model (07_model_gru.py) learned a rich internal representation
+  The trained GRU model (baseline/07_model_gru.py) learned a rich internal representation
   of each patient. Before the classifier head, it produces a fusion vector that
   combines the GRU's final hidden state (time-series) and the static branch output.
   This script extracts that fusion vector for every patient and caches it to disk.
   Those embeddings are the input to the peer-retrieval network (Steps 3–4).
 
-Why not import GRUModel directly from 07_model_gru.py?
+Why not import GRUModel directly from baseline/07_model_gru.py?
   That file runs training at module level, so importing it would re-run the full
   training loop. Instead we copy only GRUModel and ICUDataset here. The architecture
   must match exactly so the checkpoint weights load without errors.
@@ -26,7 +26,7 @@ Steps in this file:
        — Load all splits, build one combined dataloader, call steps 1–2,
          save result to EMBEDDING_CACHE_PATH.
 
-Run AFTER: 07_model_gru.py has produced output/best_gru_model.pt
+Run AFTER: baseline/07_model_gru.py has produced output/best_gru_model.pt
 Output:    output/prd_net_embeddings.pkl  (dict: stay_id → np.array)
 """
 
@@ -50,7 +50,7 @@ MAX_TS_HOURS = 48
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# GRU MODEL — architecture copy from 07_model_gru.py
+# GRU MODEL — architecture copy from baseline/07_model_gru.py
 # Must stay in sync with the original so state_dict loads without key errors.
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -111,7 +111,7 @@ def load_trained_gru(checkpoint_path: Path) -> GRUModel:
     in the checkpoint, so no hardcoded sizes are needed here.
 
     Args:
-        checkpoint_path: path to the .pt file produced by 07_model_gru.py
+        checkpoint_path: path to the .pt file produced by baseline/07_model_gru.py
 
     Returns:
         GRUModel in eval mode with weights restored, on CPU.
@@ -148,7 +148,7 @@ def load_trained_gru(checkpoint_path: Path) -> GRUModel:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DATASET — copied from 07_model_gru.py (same reason as GRUModel above)
+# DATASET — copied from baseline/07_model_gru.py (same reason as GRUModel above)
 # ══════════════════════════════════════════════════════════════════════════════
 
 class ICUDataset(Dataset):

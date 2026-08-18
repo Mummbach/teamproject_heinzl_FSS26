@@ -1,0 +1,206 @@
+PRD-Net v2 — Kontext-Notizen zur Progress-Präsentation (presentation_2.html)
+=============================================================================
+5 Slides, gedacht als Sprechnotizen / Zusatzkontext zu den Folien.
+Sprache der Folien selbst: Englisch. Diese Datei: Deutsch, mit den
+technischen Fachbegriffen (englisch), damit man sie 1:1 vorlesen/nutzen kann.
+
+
+SLIDE 1 — How PRD-Net v2 Predicts: Contrastive Prototype Comparison
+---------------------------------------------------------------------------
+Kernaussage: Wir klassifizieren nicht "blind", sondern vergleichen jeden
+Patienten explizit gegen zwei gebaute Referenzpatienten.
+
+- Task: binäre Klassifikation "ICU-Aufenthalt > 7 Tage ja/nein" (los_gt7).
+- Peer Retrieval: für jeden Patienten werden ähnliche Patienten ("peers")
+  gesucht — über einen Hard Filter (gleiches ICD-Kapitel, gleicher ICU-Typ,
+  gleiche Admission-Art) plus Alters-Toleranz, dann per KNN (K-Nearest-
+  Neighbors) im Embedding-Raum des v1-Modells.
+- Prototype Building: Durchschnitt der klinischen Feature-Werte der
+  Long-Stay-Peers = "Long-Stay-Prototyp", genauso für Short-Stay.
+- Signed Delta: Δpos = Patient − Long-Stay-Prototyp, Δneg = Patient −
+  Short-Stay-Prototyp. Wichtig: das bleibt ein VEKTOR (pro Feature ein
+  Wert), wird NIE zu einer einzelnen Distanzzahl zusammengefasst.
+- Linear Model: logit = w·x + b. Weil das Modell linear ist, ist der
+  Beitrag jedes einzelnen Inputs (w_i * x_i) exakt und nicht approximiert
+  — das entspricht mathematisch einem SHAP-Wert (LinearExplainer), ohne
+  dass man SHAP als Post-hoc-Erklärung bräuchte.
+- Verbindung zu v1 (bestehender Track, "PRD-Net") — bewusst als
+  Reuse-Beziehung dargestellt, nicht als reiner Kontrast ohne Bezug:
+  * Von v1 übernommen: die Patienten-Embeddings aus dem bereits
+    trainierten GRU-Modell (64-dim latenter Fusionsvektor aus GRU-Hidden-
+    State + Static-Branch), UND der komplette Peer-Retrieval-Mechanismus
+    (Hard Filter + Alters-Toleranz + KNN in genau diesem Embedding-Raum).
+    Das wird 1:1 übernommen, nicht neu trainiert — beantwortet "wer ist
+    ähnlich" (= Pipeline-Schritt 1 auf der Folie).
+  * Neu in v2: was mit diesen gefundenen Peers gemacht wird. Statt mit
+    dem Embedding-Fingerabdruck weiterzurechnen (v1: Distanz zu
+    Peer-Embedding-Prototypen — sagt nur "näher am Long-Stay-Cluster",
+    nicht welches klinische Merkmal dafür verantwortlich ist), werden die
+    echten klinischen Feature-Werte dieser Peers gemittelt zu zwei
+    Prototypen, und der Vergleich läuft komplett im interpretierbaren
+    Feature-Raum (siehe Slide-2-Notizen für die technischen Details zu
+    01_extract-embeddings.py / 02_peer-groups.py als Quelle).
+
+
+SLIDE 2 — Architecture: Input, Processing, Output + Beispiel-Durchlauf
+---------------------------------------------------------------------------
+- Input (F = 77 Features pro Patient):
+  * 12 Vitalwerte (heart_rate, sbp, dbp, map, resp_rate, spo2, temperature,
+    glucose, gcs_eye, gcs_verbal, gcs_motor, urine_output)
+  * je 5 Aggregat-Statistiken (AGG_STATS): mean, last, min, max, slope
+    (slope = OLS-Steigung des Werts über die Zeit im Beobachtungsfenster)
+  * → 12 × 5 = 60 Zeitreihen-Features
+  * + age (statisches Feature) = 61
+  * + 16 CXR-Features (Chest-X-Ray-Report-abgeleitete Flags: has_cxr_report,
+    pneumonia, pleural_effusion, ventilator/Intubation, severity_score,
+    abnormality_count, ...) = 77 gesamt.
+- Model Input Dimension: DIFF_INPUT="both" → concat(Δpos, Δneg) = 2 × 77
+  = 154-dim Vektor, der ins lineare Modell (nn.Linear(154,1)) geht.
+- Pipeline-Schritte (Dateinamen):
+  fd01_feature-matrix.py   → aggregiert Rohzeitreihen zu F=77-Matrix
+  fd02_feature-prototypes.py → Peer Retrieval + Prototypen bauen
+  fd03_diff-model.py       → Delta-Assembly + Modell-Definition (Modul)
+  fd04_diff-train.py       → Training, Threshold-Tuning, Test-Metriken
+  fd05_diff-explain.py     → SHAP-Validierung + globale Erklärungen
+  fd06_dashboard-export.py → pro-Patient-Erklärungsdaten exportieren
+- Output: p(Long Stay) (kalibrierte Wahrscheinlichkeit nach Sigmoid) +
+  exakte Contribution pro Feature-Dimension.
+- Beispiel-Durchlauf (echter, verifizierter Testpatient, stay_id 32579510,
+  MICU, Diagnose-Kategorie "Infectious", männlich):
+  * gcs_eye_last: Patient=1.0 (sehr niedrig), Long-Stay-Proto=2.1,
+    Short-Stay-Proto=2.75 → Patient liegt UNTER beiden, aber deutlich
+    weiter unter dem Short-Stay-Proto → Contribution +0.54 Richtung
+    Long Stay (niedrigere Augenöffnungs-Reaktion auf der Glasgow Coma
+    Scale deutet auf schwereren Zustand hin).
+  * gcs_verbal_slope: leicht negativer Trend, stärker abweichend vom
+    Long-Stay-Proto → Contribution +0.49 Richtung Long Stay.
+  * dbp_slope: Patient hat einen ansteigenden diastolischen Blutdruck-
+    Trend, was näher am Short-Stay-Muster liegt → Contribution −0.38
+    Richtung Short Stay (zieht die Vorhersage in die andere Richtung).
+  * Endergebnis: p = 0.716 → Vorhersage Long Stay, tatsächlich auch
+    Long Stay → korrekt.
+
+
+SLIDE 3 — Visualisierung mit Dashboard
+---------------------------------------------------------------------------
+- Zwei Ausgabeformen, beide lesen NUR die fd06-Exports (kein Modell-/
+  Torch-Zugriff mehr nötig):
+  * fd07_report.py → eine einzelne statische HTML-Datei (Plotly-Charts,
+    kein Server nötig), zeigt eine kuratierte Auswahl illustrativer
+    Fälle (sehr sichere Treffer, False Negatives, False Positives).
+  * fd07_dashboard.py → volle interaktive Streamlit-App über alle
+    ca. 4.600 Testpatienten, mit Filtern (Correct/Wrong/Predicted
+    Long-Short/False Negatives/False Positives) und Patient-Picker.
+- Struktur pro Patient (kürzlich so umgebaut, vorher unstrukturierter):
+  1. Patient — Demografie/Admission-Kontext (Alter, Geschlecht, ICU-
+     Einheit, Diagnose-Kategorie) — rein deskriptiv, kein Modell-Input
+     außer Alter.
+  2. Prediction — p(Long Stay), Prediction, Truth, Result.
+  3. Explanation — Rohwerte-Tabelle (Patient vs. beide Prototypen in
+     echten klinischen Einheiten), Contribution-Chart (rot = Richtung
+     Long Stay, blau = Richtung Short Stay), CXR-Unterstützungshinweis.
+  4. Peer Group Comparison — welche Kriterien die Peer-Gruppe definieren
+     (Hard-Filter-Kategorien + Alters-Toleranz), Durchschnitts-LOS und
+     %-Long-Stay dieser Peer-Gruppe, plus die 3 ähnlichsten/Long-/
+     Short-Stay-Peers mit ihrem tatsächlichen Outcome.
+  5. Delta / Difference — Chart, wo der Patient sich zwischen den beiden
+     Prototypen positioniert (0 = Short-Stay-Proto, 1 = Long-Stay-Proto).
+- Zusätzliche Heuristik: bei falsch klassifizierten Patienten wird eine
+  "Warum diese Prediction wahrscheinlich falsch ist"-Box angezeigt
+  (z.B. geringe Peer-Unterstützung, Single-Feature-Dominanz, Borderline-
+  Wahrscheinlichkeit nah am Decision Threshold).
+- Design-Prinzip: alles was als "Grund" angezeigt wird, muss klinisch
+  einordbar sein — z.B. wird has_cxr_report (reines "Report vorhanden
+  ja/nein"-Flag) NIE als Top-Reason gezeigt, weil das keine klinische
+  Erkenntnis ist, sondern nur eine Coverage-Information.
+
+
+SLIDE 4 — Results: PRD-Net v2 — Discrimination & Ranking Quality
+---------------------------------------------------------------------------
+- Kein Baseline-Vergleich mehr auf dieser Folie (bewusst rausgenommen) —
+  Fokus liegt allein auf den PRD-Net-v2-Ergebnissen selbst und was AUROC/
+  AUPRC konkret bedeuten. (Falls später doch wieder ein Baseline-Vergleich
+  gebraucht wird: die echte Projekt-Baseline wäre der Random Forest aus
+  01_selection.py→08_crossval.py, NICHT prd_net v1 — Zahlen dazu liegen
+  im vorherigen Stand dieser Datei bzw. lassen sich mit
+  `python 08_crossval.py` neu erzeugen.)
+- Vier hervorgehobene Headline-Zahlen oben auf der Folie (Test-Set,
+  48h-Fenster), plus darunter die VOLLSTÄNDIGE Metrik-Tabelle (Accuracy,
+  Precision, Recall, F1, AUROC, AUPRC) für beide Varianten — die anderen
+  Metriken fehlen also nicht, sie stehen nur nicht mehr in eigenen
+  Highlight-Boxen, sondern in einer kompakten Tabelle direkt darunter,
+  mit AUROC/AUPRC-Spalten farblich abgesetzt (Gold-Header):
+  * AUROC ohne CXR: 0.783 | AUROC mit CXR: 0.763
+  * AUPRC ohne CXR: 0.513 | AUPRC mit CXR: 0.474
+  * Accuracy: 0.742 (ohne CXR) / 0.733 (mit CXR)
+  * Precision: 0.469 / 0.453 · Recall: 0.696 / 0.649 · F1: 0.560 / 0.534
+- Was AUROC bedeutet (Area Under the ROC Curve): die Wahrscheinlichkeit,
+  dass ein zufällig gezogener Long-Stay-Patient vom Modell höher
+  eingestuft wird als ein zufällig gezogener Short-Stay-Patient. Ein
+  reiner Zufalls-Klassifikator läge bei 0.5. Mit ≈0.76–0.78 trennt das
+  Modell die beiden Gruppen klar und deutlich besser als Zufall — aber
+  nicht im "exzellenten" Bereich (>0.90), es gibt also reale Überlappung
+  zwischen Long- und Short-Stay-Patienten in den Features.
+- Was AUPRC bedeutet (Area Under the Precision-Recall Curve): die
+  strengere, imbalance-sensitive Metrik. Bei einer Prävalenz von 23,7%
+  Long-Stay-Fällen würde ein Modell OHNE jede Vorhersagekraft (rein
+  zufällige Reihenfolge) nur ≈0.237 AUPRC erreichen (nicht 0.5 wie bei
+  AUROC!). Unsere ≈0.47–0.51 sind also etwa das 2-Fache dieses No-Skill-
+  Werts — ein echter, bedeutsamer Lift. Gleichzeitig zeigt der absolute
+  Wert (deutlich unter 1.0), dass selbst die höchst-priorisierten "Long
+  Stay"-Alarme noch einen relevanten Anteil falscher Positiver enthalten
+  (passt zur beobachteten Precision von ≈0.45–0.47 beim getunten
+  Threshold).
+- Praktische Implikation, die man auf der Folie mitgeben sollte: das
+  Modell eignet sich gut zum RANKING/Priorisieren (wer hat erhöhtes
+  Risiko), sollte aber NICHT als reines Ja/Nein-Gate ohne menschliche
+  Prüfung verwendet werden — ungefähr die Hälfte der "Long Stay"-Alarme
+  bewahrheitet sich nicht.
+- CXR-Effekt (weiterhin relevant, nur nicht mehr im Baseline-Rahmen
+  dargestellt): das with-CXR-Modell liegt bei beiden Metriken leicht
+  UNTER dem no-CXR-Modell. Grund unverändert: nur 2,3% der Patienten
+  (702 von 30.615) haben überhaupt einen verwertbaren CXR-Report im
+  Beobachtungsfenster, was das Aggregat-Signal eher verdünnt als stärkt.
+  Der Nutzen von CXR liegt nicht in diesen Zahlen, sondern in reicheren
+  Pro-Patienten-Erklärungen für die betroffenen 2,3%.
+
+
+SLIDE 5 — Next Steps
+---------------------------------------------------------------------------
+1. Local vs. Global Model Comparison:
+   - Aktuell gibt es nur einen Aggregat-Vergleich (Distance View = simple
+     Regel ||Δpos|| < ||Δneg||, vs. Difference View = gelerntes Modell)
+     über F1, sichtbar in der Dashboard-Übersicht.
+   - Ziel: v1 ("global", Embedding-basiert, ganzer Patient auf einmal)
+     und v2 ("local", pro-Feature-interpretierbar) nebeneinander im
+     Dashboard zeigen, pro Patient umschaltbar — damit man am konkreten
+     Fall beurteilen kann, welche Erklärung klinisch nützlicher ist,
+     nicht nur eine globale Zahl.
+
+2. Predicted LOS via Regression Model:
+   - Aktuelles Modell ist eine reine binäre Klassifikation (>7 Tage
+     ja/nein) — es gibt keine Vorhersage einer konkreten Tagesanzahl.
+   - Für echte klinische Planungsrelevanz wäre ein Regressionskopf
+     (oder ein separates Regressionsmodell auf denselben Delta-Features)
+     nötig, der z.B. "geschätzt 9,2 Tage" statt nur "lang" ausgibt.
+   - Das ist eine größere Erweiterung, kein reiner Dashboard-Fix — würde
+     ein neues Trainingsziel (kontinuierliche LOS statt binäres Label)
+     brauchen.
+
+3. Further Metric Tuning:
+   - Bekanntes Problem ("Wrong Result Incident", intern dokumentiert):
+     die selbstbewusstesten Vorhersagen (höchste Wahrscheinlichkeit) sind
+     überproportional oft falsch, wenn die Peer-Gruppe nach dem Hard
+     Filter nur noch sehr wenige Patienten (2-5) enthält — der Prototyp
+     wird dann instabil/verrauscht, ein einzelner untypischer Peer kann
+     ein extremes Delta erzeugen, das Sigmoid sättigt nahe 1.0, obwohl
+     kaum echte Unterstützung dahintersteht.
+   - Zwei Ansätze: (a) günstig — Dashboard-Sortierung ändern, damit nicht
+     automatisch die unzuverlässigsten Fälle zuerst gezeigt werden;
+     (b) tiefer — Wahrscheinlichkeit Richtung 0.5 dämpfen, wenn Peer-
+     Support niedrig ist (echte Kalibrierung, kein reiner Anzeige-Fix).
+   - Außerdem: AUROC/AUPRC insgesamt weiter nach oben bringen (mehr Peers,
+     bessere Prototyp-Robustheit, ggf. leichte Nichtlinearität zulassen),
+     und die CXR-Coverage-Frage nochmal angehen (z.B. größeres Zeitfenster
+     für Report-Matching, oder es als akzeptiertes Minderheiten-Signal
+     stehen lassen statt zu versuchen es aggregat-relevant zu machen).

@@ -1,8 +1,9 @@
 """
 Shared utilities for multimodal explainability scripts.
 
-Imported by: 08b_shap_multimodal.py, 09b_explainability_multimodal.py,
-             10b_timeshap_multimodal.py, 12b_lime_multimodal.py
+Imported by: baseline/07_model_gru.py, baseline/08b_hyperparameter_search.py,
+             baseline/09_shap.py, baseline/10_explainability.py, baseline/11_timeshap.py,
+             explainability/shap_prdnet.py
 """
 
 import numpy as np
@@ -82,15 +83,17 @@ class ICUDataset(Dataset):
 class GRUModel(nn.Module):
     def __init__(self, ts_input_size, static_input_size,
                  hidden_size=64, num_layers=2, static_dim=64, dropout=0.3,
-                 use_text: bool = False, text_dim: int = 32):
+                 use_gru: bool = True, use_text: bool = False, text_dim: int = 32):
         super().__init__()
+        self.use_gru = use_gru
         self.use_text = use_text
 
-        self.gru = nn.GRU(
-            input_size=ts_input_size, hidden_size=hidden_size,
-            num_layers=num_layers, batch_first=True,
-            dropout=dropout if num_layers > 1 else 0.0,
-        )
+        if use_gru:
+            self.gru = nn.GRU(
+                input_size=ts_input_size, hidden_size=hidden_size,
+                num_layers=num_layers, batch_first=True,
+                dropout=dropout if num_layers > 1 else 0.0,
+            )
         self.static_branch = nn.Sequential(
             nn.Linear(static_input_size, static_dim), nn.ReLU(), nn.Dropout(dropout),
         )
@@ -98,7 +101,7 @@ class GRUModel(nn.Module):
             self.text_branch = nn.Sequential(
                 nn.Linear(1536, text_dim), nn.ReLU(), nn.Dropout(dropout),
             )
-        fusion_input = hidden_size + static_dim + (text_dim if use_text else 0)
+        fusion_input = (hidden_size if use_gru else 0) + static_dim + (text_dim if use_text else 0)
         self.classifier = nn.Sequential(
             nn.Dropout(dropout), nn.Linear(fusion_input, 32),
             nn.ReLU(), nn.Dropout(dropout), nn.Linear(32, 1),
@@ -107,10 +110,11 @@ class GRUModel(nn.Module):
     def forward(self, ts, static, text=None):
         if self.use_text and text is None:
             text = torch.zeros(ts.shape[0], self.text_branch[0].in_features, device=ts.device, dtype=ts.dtype)
-        _, h_n = self.gru(ts)
-        gru_out = h_n[-1]
-        static_out = self.static_branch(static)
-        parts = [gru_out, static_out]
+        parts = []
+        if self.use_gru:
+            _, h_n = self.gru(ts)
+            parts.append(h_n[-1])
+        parts.append(self.static_branch(static))
         if self.use_text and text is not None:
             parts.append(self.text_branch(text))
         return self.classifier(torch.cat(parts, dim=1)).squeeze(1)

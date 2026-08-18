@@ -18,6 +18,9 @@ Output:  output/split_ids.parquet   — stay_id + split column ("train"/"val"/"t
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
 from config import OUTPUT_DIR
 
 OUTPUT_DIR.mkdir(exist_ok=True)

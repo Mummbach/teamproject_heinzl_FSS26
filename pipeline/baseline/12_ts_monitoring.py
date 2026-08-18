@@ -21,8 +21,13 @@ Outputs:
 import pandas as pd
 import numpy as np
 import seaborn as sns
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
 from config import (
     ICU_DIR,
     OUTPUT_DIR,

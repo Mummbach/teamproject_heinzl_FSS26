@@ -23,7 +23,7 @@ Produces:
   B) Population heatmap: mean |SHAP| per hour across N patients
   C) Aggregated bar chart: which hours matter most on average
 
-Run AFTER: 08_model_gru.py  (best_gru_model.pt must exist)
+Run AFTER: 07_model_gru.py  (best_gru_model.pt must exist)
 
 Input:  output/X_train_scaled.parquet
         output/X_test_scaled.parquet
@@ -48,6 +48,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import shap
 
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
 from config import OUTPUT_DIR
 from multimodal_utils import ICUDataset, load_multimodal_model
 

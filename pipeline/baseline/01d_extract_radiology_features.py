@@ -26,6 +26,9 @@ import re
 import pandas as pd
 import numpy as np
 
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
 from config import OUTPUT_DIR
 
 # ──────────────────────────────────────────────────────────────────────────────

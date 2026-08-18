@@ -9,7 +9,7 @@ the full pipeline: GRU encoder → PRD-Net → logit.
 Why end-to-end and not just SHAP on the embedding?
   The embedding is a 128-dim internal vector with no clinical meaning.
   Attributing back to (ts, static) gives interpretable feature importances
-  that can be directly compared to the GRU-only SHAP results (shap_global.py).
+  that can be directly compared to the GRU-only SHAP results (baseline/09_shap.py).
 
 Architecture of the wrapped pipeline:
   ts (batch, 48, n_ts)  ──┐
@@ -24,7 +24,7 @@ the clinically filtered training set. They are not SHAP inputs — only
 (ts, static) are attributed.
 
 Run AFTER:
-  08_model_gru.py          → output/best_gru_model.pt
+  baseline/07_model_gru.py → output/best_gru_model.pt
   prd_net/04_prd-train.py  → prd_net/checkpoints/prd_net_v1.pt
   prd_net/02_peer-groups.py → output/prd_net_peers.pkl
   prd_net/01_extract-embeddings.py → output/prd_net_embeddings.pkl
@@ -406,7 +406,7 @@ if gru_expl_path.exists():
     plt.close()
     print("Saved shap_prdnet_vs_gru.png")
 else:
-    print("\nSkipping GRU vs PRD-Net comparison — run shap_global.py first to generate explanations.parquet")
+    print("\nSkipping GRU vs PRD-Net comparison — run baseline/09_shap.py first to generate explanations.parquet")
 
 
 # ═══════════════════════════════════════════════════════════════════════

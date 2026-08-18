@@ -35,6 +35,8 @@ from sklearn.metrics import (
     f1_score, roc_auc_score, average_precision_score,
 )
 from pathlib import Path
+import sys
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
 from config import OUTPUT_DIR
 
 ANALYSIS_DIR = OUTPUT_DIR / "analysis"

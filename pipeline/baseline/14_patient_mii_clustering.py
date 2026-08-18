@@ -23,6 +23,8 @@ Outputs:
 
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import StandardScaler
@@ -35,6 +37,9 @@ try:
 except ImportError:
     UMAP_AVAILABLE = False
 
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
 from config import OUTPUT_DIR
 
 
@@ -261,7 +266,7 @@ plt.savefig(
     dpi=300
 )
 
-plt.show()
+plt.close()
 
 print(f"\nSaved visualization: {out_path}")
 

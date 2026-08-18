@@ -158,7 +158,7 @@ if n_pass < 5:
 else:
     print("  OK — prototypes are separating as expected.")
 
-# ── Full evaluation metrics (same set as 07_model_gru.py) ────────────────────
+# ── Full evaluation metrics (same set as baseline/07_model_gru.py) ────────────────────
 probs = 1 / (1 + np.exp(-logits_np))   # sigmoid
 preds = (probs >= 0.5).astype(int)
 

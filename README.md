@@ -9,13 +9,13 @@
 
 The pipeline behaviour is controlled by flags at the top of each script — no code changes needed, just flip the value and re-run.
 
-### `pipeline/01_selection.py`
+### `pipeline/baseline/01_selection.py`
 
 | Variable | Values | Description |
 |---|---|---|
 | `EXCLUDE_EARLY_DEATHS` | `False` (default) / `True` | Exclude patients who died between 48h and 7d after ICU admission (bias check) |
 
-### `pipeline/04_preprocessing.py`
+### `pipeline/baseline/04_preprocessing.py`
 
 | Variable | Values | Description |
 |---|---|---|
@@ -23,7 +23,7 @@ The pipeline behaviour is controlled by flags at the top of each script — no c
 | `USE_MISSINGNESS_FLAGS` | `True` (default) / `False` | Include binary `_missing` flags as extra features |
 | `USE_AGGREGATED_VITALS` | `True` (default) / `False` | Include aggregated vital sign stats (mean, std, slope etc.) in the static feature set |
 
-### `pipeline/07_model_gru.py`
+### `pipeline/baseline/07_model_gru.py`
 
 | Variable | Values | Description |
 |---|---|---|
@@ -51,8 +51,41 @@ We develop **Patient Similarity-Based Graph Neural Networks** that explain AI pr
 ## 🗂️ Repository Structure
 
 ```
-TBA
+teamproject_heinzl_FSS26/
+├── pipeline/
+│   ├── config.py              # shared paths/constants — imported by all three tracks below
+│   ├── multimodal_utils.py    # shared GRU/SHAP dataset + model helpers (baseline + explainability/shap_prdnet.py)
+│   ├── data/                  # raw MIMIC-IV / MIMIC-CXR tables (gitignored, PhysioNet-credentialed)
+│   ├── output/                # generated features/models/plots, shared across all three tracks (gitignored)
+│   │
+│   ├── baseline/               # 01–14: cohort → features → GRU baseline (the "core" numbered pipeline)
+│   │   ├── 01_selection.py … 01e_extract_bioclinicalbert_embeddings.py   # optional CXR/BERT chain
+│   │   ├── 02_features.py, 03_splitting.py, 04_preprocessing.py, 06_normalize.py
+│   │   ├── 07_model_gru.py, 08_crossval.py, 08b_hyperparameter_search.py
+│   │   ├── 09_shap.py, 10_explainability.py, 11_timeshap.py             # baseline GRU explainability
+│   │   ├── 12_ts_monitoring.py … 14_patient_mii_clustering.py           # monitoring-intensity track
+│   │   └── correlation.py                                               # feature-redundancy EDA
+│   │
+│   ├── prd_net/                # v1: latent-space Patient-peer Reference/Difference net (GRU embedding delta)
+│   ├── prd_net_v2/             # v2: feature-space contrastive difference model (see its README for the full story)
+│   │   └── README.md           # design decisions, reproduction steps, results — start here for PRD-Net
+│   │
+│   └── explainability/         # shap_prdnet.py — SHAP explanations for prd_net v1 (the only file here; see note below)
+│
+├── archive/                    # earlier pre-restructure notebooks/figures/results, kept for reference only
+├── docs/                       # misc process/spec docs
+├── presentations/              # slide decks
+└── requirements.txt             # full dev-env freeze; pipeline/requirements.txt is the curated, pinned runtime list
 ```
+
+> **Note on `explainability/`**: this folder used to hold a second, independently-maintained
+> implementation of the SHAP/explainability/TimeSHAP logic that already lives in
+> `baseline/09_shap.py`/`10_explainability.py`/`11_timeshap.py` — a leftover from a
+> 2026-07-28 five-branch merge that kept a losing branch's rewrite "folder-namespaced"
+> instead of deleting it. Those three duplicate scripts (plus their own forked
+> `multimodal_utils.py`) were removed on 2026-08-17; only `shap_prdnet.py` remains,
+> since it's the unique tool that explains **prd_net v1** and has no baseline
+> equivalent.
 
 ---
 
@@ -76,7 +109,7 @@ This project uses **[MIMIC-IV v3.1](https://physionet.org/content/mimiciv/3.1/)*
 | **48-h Mortality** | Binary classification | Death within 48h |
 | **Readmission** | Binary classification | Readmission within 30 days |
 
-> ⚠️ **Data Access**: MIMIC-IV is not included in this repository. You must apply for access via [PhysioNet](https://physionet.org/content/mimiciv/3.1/). Once approved, follow the instructions in [`data/README.md`](data/README.md) to place the files correctly.
+> ⚠️ **Data Access**: MIMIC-IV is not included in this repository. You must apply for access via [PhysioNet](https://physionet.org/content/mimiciv/3.1/). Once approved, follow the "Data layout" instructions in [`pipeline/prd_net_v2/README.md`](pipeline/prd_net_v2/README.md) to place the files correctly under `pipeline/data/`.
 
 ---
 

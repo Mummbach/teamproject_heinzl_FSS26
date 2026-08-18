@@ -32,6 +32,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 
+import sys
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
 from config import ICU_DIR, OUTPUT_DIR, OBS_WINDOW, VITAL_ITEMIDS, URINE_ITEMIDS
 
 

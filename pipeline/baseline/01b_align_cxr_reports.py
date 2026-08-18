@@ -34,6 +34,8 @@ For each ICU stay:
 from pathlib import Path
 import pandas as pd
 
+import sys
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
 from config import DATA_DIR, OUTPUT_DIR, OBS_WINDOW
 
 # ──────────────────────────────────────────────────────────────────────────────

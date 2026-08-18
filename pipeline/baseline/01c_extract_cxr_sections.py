@@ -52,7 +52,10 @@ Notes
 import re
 import pandas as pd
 
-from config import OUTPUT_DIR
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
+from config import OUTPUT_DIR, extract_section as _extract_section_raw
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Paths
@@ -85,46 +88,11 @@ print(f"  rows with reports: {len(df):,}")
 
 def extract_section(text: str, section_name: str) -> str:
     """
-    Extract section from radiology report.
-
-    Example:
-        FINDINGS:
-        IMPRESSION:
-
-    Returns:
-        extracted section text
-        or "" if missing
+    Extract section from radiology report (see config.extract_section),
+    with repeated whitespace collapsed for clean CSV output.
     """
-
-    if not isinstance(text, str):
-        return ""
-
-    # Normalize line endings
-    text = text.replace("\r", "\n")
-
-    # Regex:
-    # section_name:
-    # capture until next ALLCAPS section or end of text
-
-    pattern = (
-        rf"{section_name}\s*:\s*(.*?)(?=\n[A-Z ]+\s*:|\Z)"
-    )
-
-    match = re.search(
-        pattern,
-        text,
-        flags=re.IGNORECASE | re.DOTALL
-    )
-
-    if match:
-        extracted = match.group(1).strip()
-
-        # Collapse repeated whitespace
-        extracted = re.sub(r"\s+", " ", extracted)
-
-        return extracted
-
-    return ""
+    extracted = _extract_section_raw(text, section_name)
+    return re.sub(r"\s+", " ", extracted) if extracted else extracted
 
 
 # ──────────────────────────────────────────────────────────────────────────────

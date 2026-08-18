@@ -25,7 +25,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-sys.path.insert(0, ".")
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
 from config import OUTPUT_DIR
 
 THRESHOLD = 0.8

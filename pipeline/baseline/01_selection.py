@@ -27,6 +27,9 @@ Output:     output/cohort.csv  +  output/cohort_stay_ids.txt
 """
 
 import pandas as pd
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
 from config import HOSP_DIR, ICU_DIR, OUTPUT_DIR, THRESHOLD
 
 # ── Early deaths bias check ───────────────────────────────────────────────────

@@ -3,6 +3,7 @@ Shared configuration for all feature extraction scripts.
 Import this in every script to keep paths and constants consistent.
 """
 
+import re
 from pathlib import Path
 
 # ── Directory paths ───────────────────────────────────────────────────────────
@@ -143,6 +144,27 @@ ICD_CATEGORIES = [
 
 # ── ATC Level 1 drug classes ──────────────────────────────────────────────────
 ATC1_CODES = list("ABCDGHJLMNPRSV")
+
+# ── Radiology report section parser ──────────────────────────────────────────
+# Shared by baseline/01c_extract_cxr_sections.py, baseline/01e_extract_bioclinicalbert_embeddings.py,
+# and baseline/02b_cxr_features.py — all three pull FINDINGS/IMPRESSION out of raw
+# MIMIC-CXR report text using the same regex.
+def extract_section(text: str, section_name: str) -> str:
+    """
+    Extract a named section (e.g. "FINDINGS", "IMPRESSION") from a radiology
+    report. Returns "" if the section is missing or text is not a string.
+    """
+    if not isinstance(text, str):
+        return ""
+
+    text = text.replace("\r", "\n")
+
+    pattern = rf"{section_name}\s*:\s*(.*?)(?=\n[A-Z ]+\s*:|\Z)"
+    match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+
+    return match.group(1).strip() if match else ""
+
+
 ATC1_COL_NAMES = {
     "A": "atc_alimentary",
     "B": "atc_blood",

@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Patient Monitoring Intensity (PMI) | University of Mannheim</title>
+<style>
+  :root {
+    --uni-blue: #003764;
+    --uni-blue-mid: #004f8c;
+    --uni-blue-light: #0074c2;
+    --uni-blue-pale: #cce0f0;
+    --uni-blue-bg: #eaf3fb;
+    --accent-gold: #c8a84b;
+    --text-dark: #1a1a2e;
+    --text-mid: #3a4a5c;
+    --text-light: #6b7d8e;
+    --white: #ffffff;
+    --border: #d0dde8;
+    --green: #2e7d32;
+    --red: #c62828;
+    --orange: #e65100;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    background: #1a2535;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  .slideshow-container {
+    width: 1280px;
+    height: 720px;
+    position: relative;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+
+  .slide {
+    width: 1280px;
+    height: 720px;
+    display: none;
+    position: absolute;
+    top: 0; left: 0;
+    background: var(--white);
+    overflow: hidden;
+  }
+
+  .slide.active { display: flex; flex-direction: column; }
+
+  /* ─── NAVIGATION ─── */
+  .nav-bar {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(0,55,100,0.9);
+    backdrop-filter: blur(8px);
+    padding: 10px 20px;
+    border-radius: 30px;
+    z-index: 1000;
+  }
+  .nav-bar button {
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: white;
+    padding: 6px 18px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.2s;
+  }
+  .nav-bar button:hover { background: rgba(255,255,255,0.3); }
+  .nav-bar span {
+    color: rgba(255,255,255,0.7);
+    font-size: 13px;
+    min-width: 80px;
+    text-align: center;
+  }
+
+  /* ─── COMMON COMPONENTS ─── */
+  .slide-header {
+    background: var(--uni-blue);
+    padding: 16px 44px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .slide-header h2 {
+    color: white;
+    font-size: 21px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .slide-header .header-tag {
+    background: rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.85);
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  .slide-body {
+    flex: 1;
+    padding: 20px 44px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .slide-footer {
+    background: var(--uni-blue-bg);
+    border-top: 2px solid var(--uni-blue);
+    padding: 9px 44px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .slide-footer span {
+    font-size: 11px;
+    color: var(--text-light);
+  }
+  .slide-footer .uni-badge {
+    font-size: 11px;
+    color: var(--uni-blue);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+
+  /* ─── CARDS ─── */
+  .card-grid {
+    display: grid;
+    gap: 12px;
+  }
+  .card-grid-2 { grid-template-columns: 1fr 1fr; }
+  .card-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .card-grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+  .card {
+    background: var(--uni-blue-bg);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--uni-blue);
+    border-radius: 6px;
+    padding: 12px 15px;
+  }
+  .card.green { border-left-color: var(--green); background: #f1f8f1; }
+  .card.red { border-left-color: var(--red); background: #fdf1f1; }
+  .card.orange { border-left-color: var(--orange); background: #fff8f0; }
+  .card.gold { border-left-color: var(--accent-gold); background: #fdf9ee; }
+
+  .card h4 {
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-light);
+    margin-bottom: 5px;
+    font-weight: 600;
+  }
+  .card .big-num {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--uni-blue);
+    line-height: 1.1;
+  }
+  .card .big-num.green { color: var(--green); }
+  .card .big-num.red { color: var(--red); }
+  .card p {
+    font-size: 12px;
+    color: var(--text-mid);
+    line-height: 1.45;
+    margin-top: 3px;
+  }
+  .card ul {
+    list-style: none;
+    margin-top: 4px;
+  }
+  .card ul li {
+    font-size: 11.5px;
+    color: var(--text-mid);
+    padding: 1.5px 0;
+    padding-left: 14px;
+    position: relative;
+    line-height: 1.4;
+  }
+  .card ul li::before {
+    content: '›';
+    position: absolute;
+    left: 0;
+    color: var(--uni-blue);
+    font-weight: 700;
+  }
+  .card.red ul li::before { color: var(--red); }
+  .card.orange ul li::before { color: var(--orange); }
+  .card.green ul li::before { color: var(--green); }
+
+  /* ─── TABLE ─── */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .data-table th {
+    background: var(--uni-blue);
+    color: white;
+    padding: 6px 10px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .data-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-mid);
+    vertical-align: middle;
+  }
+  .data-table tr:nth-child(even) td { background: var(--uni-blue-bg); }
+  .data-table tr.hl td { background: var(--uni-blue-pale); font-weight: 600; color: var(--uni-blue); }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10.5px;
+    font-weight: 600;
+  }
+  .badge-blue { background: var(--uni-blue); color: white; }
+  .badge-green { background: #c8e6c9; color: #1b5e20; }
+  .badge-red { background: #ffcdd2; color: #b71c1c; }
+  .badge-gray { background: #eceff1; color: #455a64; }
+  .badge-gold { background: #f3e5c0; color: #7a5c00; }
+
+  /* ─── PILL LISTS ─── */
+  .pill-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill {
+    background: var(--uni-blue);
+    color: white;
+    padding: 4px 11px;
+    border-radius: 14px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .pill.light { background: var(--uni-blue-pale); color: var(--uni-blue); }
+  .pill.green { background: #c8e6c9; color: #1b5e20; }
+  .pill.gold { background: #f3e5c0; color: #7a5c00; }
+
+  /* ─── SECTION LABEL ─── */
+  .section-label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--uni-blue-light);
+    font-weight: 700;
+    margin-bottom: 5px;
+  }
+
+  /* ─── ARCHITECTURE / PIPELINE FLOW ─── */
+  .pipeline-flow {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+  }
+  .pipe-step {
+    background: var(--uni-blue);
+    color: white;
+    padding: 10px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+    flex: 1;
+    line-height: 1.3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .pipe-step small { font-weight: 400; opacity: 0.85; font-size: 10px; display:block; margin-top:2px; }
+  .pipe-step:first-child { border-radius: 6px 0 0 6px; }
+  .pipe-step:last-child { border-radius: 0 6px 6px 0; }
+  .pipe-step.mid1 { background: var(--uni-blue-mid); }
+  .pipe-step.mid2 { background: var(--uni-blue-light); }
+  .pipe-step.mid3 { background: #0090d4; }
+  .pipe-step.mid4 { background: var(--green); }
+  .pipe-arrow-sep {
+    width: 0; height: 0;
+    border-top: 24px solid transparent;
+    border-bottom: 24px solid transparent;
+    border-left: 12px solid var(--uni-blue);
+    flex-shrink: 0;
+    z-index: 1;
+  }
+  .pipe-arrow-sep.mid1 { border-left-color: var(--uni-blue-mid); }
+  .pipe-arrow-sep.mid2 { border-left-color: var(--uni-blue-light); }
+  .pipe-arrow-sep.mid3 { border-left-color: #0090d4; }
+
+  /* ─── VERTICAL FLOW (dashboard sections) ─── */
+  .vflow { display: flex; flex-direction: column; gap: 0; }
+  .vflow-step {
+    background: var(--uni-blue);
+    color: white;
+    padding: 9px 16px;
+    font-size: 12.5px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .vflow-step .n { opacity: 0.6; font-weight: 700; margin-right: 10px; }
+  .vflow-step:first-child { border-radius: 6px 6px 0 0; }
+  .vflow-step:last-child { border-radius: 0 0 6px 6px; }
+  .vflow-step.s2 { background: var(--uni-blue-mid); }
+  .vflow-step.s3 { background: var(--uni-blue-light); }
+  .vflow-step.s4 { background: #0090d4; }
+  .vflow-step.s5 { background: var(--green); }
+  .vflow-arrow { text-align: center; color: var(--border); font-size: 10px; line-height: 1; }
+
+  /* ─── FORMULA BOX ─── */
+  .formula-box {
+    background: var(--uni-blue);
+    color: white;
+    border-radius: 6px;
+    padding: 12px 18px;
+    font-size: 15px;
+    font-family: 'Cambria Math', Georgia, serif;
+    text-align: center;
+    letter-spacing: 0.3px;
+  }
+  .formula-box .sub { font-size: 11px; opacity: 0.7; font-family: 'Segoe UI', Arial, sans-serif; margin-top: 4px; }
+
+  /* ─── TITLE / HEADLINE STRIP ─── */
+  .title-strip {
+    background: var(--uni-blue);
+    color: white;
+    padding: 12px 44px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .title-strip .tag { font-size: 11px; color: var(--accent-gold); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
+  .title-strip h1 { font-size: 25px; font-weight: 700; }
+  .title-strip .meta { font-size: 12px; color: rgba(255,255,255,0.6); }
+
+  .sep { border: none; border-top: 1px solid var(--border); margin: 2px 0; }
+
+  /* ─── METRIC ROW (highlighted headline metrics) ─── */
+  .metric-row { display: flex; gap: 12px; }
+  .metric-box {
+    flex: 1;
+    background: var(--uni-blue);
+    color: white;
+    border-radius: 8px;
+    padding: 12px 16px;
+    text-align: center;
+  }
+  .metric-box .val { font-size: 30px; font-weight: 700; line-height: 1.1; }
+  .metric-box .lbl { font-size: 10.5px; opacity: 0.75; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .metric-box .sub { font-size: 10px; opacity: 0.6; margin-top: 3px; }
+  .metric-box.gold-bg { background: var(--accent-gold); }
+  .metric-box.mid-bg { background: var(--uni-blue-mid); }
+  .metric-box.light-bg { background: var(--uni-blue-light); }
+</style>
+</head>
+<body>
+
+<div class="slideshow-container">
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 1 — PMI AS AN ADDITIONAL PREDICTOR
+════════════════════════════════════════════════════════════════ -->
+<div class="slide active">
+  <div class="slide-header">
+    <h2>Patient Monitoring Intensity (PMI) as an Additional Predictor</h2>
+    <span class="header-tag">Objective</span>
+  </div>
+  <div class="slide-body">
+
+    <div class="card-grid card-grid-2" style="flex:0 0 auto;">
+      <div class="card">
+        <h4>Objective</h4>
+        <p style="font-size:13px; color:var(--text-dark); font-weight:600;">Evaluate whether Patient Monitoring Intensity (PMI) improves prediction of prolonged ICU Length of Stay (LOS &gt; 7 days) when incorporated into the baseline GRU model.</p>
+      </div>
+      <div class="card gold">
+        <h4>Hypothesis</h4>
+        <p style="font-size:13px; color:var(--text-dark); font-weight:600;">Monitoring intensity reflects clinician assessment of patient severity and therefore provides complementary information beyond physiological measurements.</p>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">PMI Features — Capture Aspects of Clinician Assessment Absent From Physiological Signals</div>
+      <div class="pill-list">
+        <span class="pill">Total measurement frequency</span>
+        <span class="pill light">Mean temporal coverage</span>
+        <span class="pill">Maximum monitoring frequency</span>
+        <span class="pill light">Number of actively monitored variables</span>
+        <span class="pill">Mean measurement irregularity</span>
+        <span class="pill light">Composite PMI score</span>
+      </div>
+    </div>
+
+    <div class="card" style="flex:1;">
+      <h4>Why PMI</h4>
+      <p>Physiological time-series describe <strong>what the patient's body is doing</strong>. PMI describes <strong>what the clinical team is doing about it</strong> — how often, how broadly, and how consistently the patient is being observed. This is a signal that exists nowhere in the vitals themselves.</p>
+    </div>
+
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>PMI · Additional Predictor Track</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 2 — CORRELATION BETWEEN PMI AND LOS
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Correlation Between PMI and LOS</h2>
+    <span class="header-tag">Correlation Analysis</span>
+  </div>
+  <div class="slide-body">
+
+    <div class="card" style="flex:0 0 auto;">
+      <h4>Feature Correlations With LOS</h4>
+      <table class="data-table" style="margin-top:4px;">
+        <thead><tr><th>Feature</th><th>Pearson</th><th>Spearman</th></tr></thead>
+        <tbody>
+          <tr><td>Total frequency</td><td>126</td><td>170</td></tr>
+          <tr><td>Mean coverage</td><td>112</td><td>170</td></tr>
+          <tr><td>PMI</td><td>105</td><td>165</td></tr>
+          <tr><td>Max frequency</td><td>80</td><td>105</td></tr>
+          <tr><td>Mean irregularity</td><td>-74</td><td>-126</td></tr>
+          <tr><td>Active features</td><td>-27</td><td>-9</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card-grid card-grid-2" style="flex:1;">
+      <div class="card">
+        <h4>Key Findings</h4>
+        <ul>
+          <li>All major PMI metrics showed statistically significant correlations with LOS</li>
+          <li>Correlations were positive but weak</li>
+          <li>Patients monitored more frequently generally experienced longer ICU stays</li>
+        </ul>
+      </div>
+      <div class="card gold">
+        <ul>
+          <li>Measurement irregularity showed a small negative association with LOS</li>
+          <li>PMI alone is not a strong predictor of LOS but contains useful complementary information</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>PMI · Correlation Analysis</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 3 — REGRESSION RESULTS
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Regression Results</h2>
+    <span class="header-tag">Linear Regression</span>
+  </div>
+  <div class="slide-body">
+
+    <div class="card" style="flex:0 0 auto;">
+      <h4>Variance in LOS Explained (R²) per Feature</h4>
+      <table class="data-table" style="margin-top:4px;">
+        <thead><tr><th>Feature</th><th>R²</th></tr></thead>
+        <tbody>
+          <tr class="hl"><td>Total frequency</td><td>0.0158</td></tr>
+          <tr><td>Mean coverage</td><td>0.0126</td></tr>
+          <tr><td>PMI</td><td>0.0109</td></tr>
+          <tr><td>Max frequency</td><td>0.0065</td></tr>
+          <tr><td>Mean irregularity</td><td>0.0055</td></tr>
+          <tr><td>Active features</td><td>0.0007</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card-grid card-grid-2" style="flex:1;">
+      <div class="card">
+        <h4>Interpretation</h4>
+        <ul>
+          <li>No individual monitoring feature explains more than <strong>1.6%</strong> of LOS variance</li>
+          <li>LOS is influenced by many clinical factors</li>
+        </ul>
+      </div>
+      <div class="card gold">
+        <ul>
+          <li>Monitoring intensity contributes <strong>incremental predictive information</strong> rather than acting as an independent predictor</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>PMI · Linear Regression</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 4 — BASELINE GRU VS GRU+PMI
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Baseline GRU vs. GRU+PMI</h2>
+    <span class="header-tag">Model Performance</span>
+  </div>
+  <div class="slide-body">
+
+    <div style="flex:0 0 auto;">
+      <div class="section-label">Relative Improvement — GRU+PMI vs. Baseline GRU</div>
+      <div class="metric-row">
+        <div class="metric-box">
+          <div class="val">+0.13%</div>
+          <div class="lbl">AUROC</div>
+          <div class="sub">0.8451 → 0.8462</div>
+        </div>
+        <div class="metric-box gold-bg">
+          <div class="val">+2.51%</div>
+          <div class="lbl">AUPRC</div>
+          <div class="sub">0.6375 → 0.6535</div>
+        </div>
+        <div class="metric-box mid-bg">
+          <div class="val">+1.10%</div>
+          <div class="lbl">F1-score</div>
+          <div class="sub">0.6252 → 0.6321</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:0 0 auto;">
+      <div class="section-label">Full Metric Set</div>
+      <table class="data-table">
+        <thead><tr><th>Metric</th><th>Baseline GRU</th><th>GRU + PMI</th><th>Absolute improvement</th><th>Relative improvement</th></tr></thead>
+        <tbody>
+          <tr><td>AUROC</td><td>0.8451</td><td>0.8462</td><td>+0.0011</td><td>+0.13%</td></tr>
+          <tr><td>AUPRC</td><td>0.6375</td><td>0.6535</td><td>+0.0160</td><td>+2.51%</td></tr>
+          <tr><td>F1-score</td><td>0.6252</td><td>0.6321</td><td>+0.0069</td><td>+1.10%</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card-grid card-grid-2" style="flex:1;">
+      <div class="card green">
+        <h4>Result</h4>
+        <p style="font-size:13px; color:var(--text-dark); font-weight:600;">Better identification of patients with prolonged ICU stays despite class imbalance.</p>
+      </div>
+      <div class="card">
+        <p>Physiological time-series describe <strong>patient condition</strong>, whereas PMI describes <strong>clinical response</strong>. PMI captures signals that provide contextual information unavailable from vital signs alone.</p>
+      </div>
+    </div>
+
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>PMI · Baseline GRU vs. GRU+PMI</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SLIDE 5 — MONITORING REFLECTS CLINICIAN BEHAVIOR
+════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Monitoring Reflects Clinician Behavior</h2>
+    <span class="header-tag">Interpretation</span>
+  </div>
+  <div class="slide-body">
+
+    <div class="card" style="flex:0 0 auto;">
+      <h4>Patients Receiving...</h4>
+      <div class="pill-list" style="margin-top:6px;">
+        <span class="pill">More frequent measurements</span>
+        <span class="pill light">Higher monitoring coverage</span>
+        <span class="pill">Greater observation intensity</span>
+      </div>
+      <p style="margin-top:8px;">...are often those considered <strong>clinically unstable</strong>.</p>
+    </div>
+
+    <div class="card-grid card-grid-2" style="flex:1;">
+      <div class="card gold">
+        <h4>PMI as a Proxy</h4>
+        <p style="font-size:13px; color:var(--text-dark); font-weight:600;">PMI therefore acts as a proxy for illness severity, perceived clinical risk and intensity of care.</p>
+      </div>
+      <div class="card">
+        <h4>Complementary, Not a Replacement</h4>
+        <p>Rather than replacing physiological variables, PMI complements them by incorporating aspects of clinical decision-making.</p>
+      </div>
+    </div>
+
+    <div class="card" style="flex:0 0 auto; background:var(--uni-blue); border:none;">
+      <p style="font-size:13px; color:white; text-align:center;">Monitoring intensity is not just data collection frequency — it is a recorded trace of clinician judgment, and a measurable complement to physiological signals.</p>
+    </div>
+
+  </div>
+  <div class="slide-footer">
+    <span class="uni-badge">UNIVERSITY OF MANNHEIM</span>
+    <span>PMI · Clinician Behavior</span>
+  </div>
+</div>
+
+</div><!-- /slideshow-container -->
+
+<!-- ─── NAVIGATION ─── -->
+<div class="nav-bar">
+  <button onclick="changeSlide(-1)">← Prev</button>
+  <span id="slide-counter">1 / 5</span>
+  <button onclick="changeSlide(1)">Next →</button>
+</div>
+
+<script>
+  let current = 0;
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+
+  function showSlide(n) {
+    slides[current].classList.remove('active');
+    current = (n + total) % total;
+    slides[current].classList.add('active');
+    document.getElementById('slide-counter').textContent = (current + 1) + ' / ' + total;
+  }
+
+  function changeSlide(dir) { showSlide(current + dir); }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') changeSlide(1);
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') changeSlide(-1);
+  });
+</script>
+</body>
+</html>

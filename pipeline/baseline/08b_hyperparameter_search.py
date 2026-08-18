@@ -7,7 +7,7 @@ Respects the same flags as 07_model_gru.py:
   USE_TEXT  — include CXR text branch
   CXR_ONLY  — restrict cohort to patients with CXR report
 
-Run AFTER:  05_normalize.py
+Run AFTER:  06_normalize.py
             02b_cxr_features.py  (if USE_TEXT = True)
 
 Output:  prints best hyperparameters and val F1
@@ -18,7 +18,7 @@ import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from typing import Optional
 
 try:
@@ -27,9 +27,13 @@ try:
 except ImportError:
     raise ImportError("Install optuna: pip install optuna")
 
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
 from config import OUTPUT_DIR
+from multimodal_utils import ICUDataset as _BaseICUDataset, GRUModel
 
-# Flags (match 06_model_gru.py) 
+# Flags (match 07_model_gru.py)
 USE_TEXT = True
 CXR_ONLY = True
 
@@ -45,78 +49,28 @@ np.random.seed(SEED)
 print(f"Device: {DEVICE}  |  Trials: {N_TRIALS}")
 
 
-# Dataset 
+# Dataset
+# ICUDataset (ts/static/label) and GRUModel are shared with 07_model_gru.py
+# and the explainability scripts — see multimodal_utils.py. Here we only add
+# the CXR embedding branch on top of the shared dataset.
 
-class ICUDataset(Dataset):
+class ICUDataset(_BaseICUDataset):
     def __init__(self, X_static, y, ts, ts_features,
                  cxr: Optional[pd.DataFrame] = None):
-        self.stay_ids   = X_static["stay_id"].values
-        self.static_arr = X_static.drop(columns=["stay_id"]).values.astype(np.float32)
-        self.labels     = y.set_index("stay_id").loc[self.stay_ids, "los_gt7"].values.astype(np.float32)
-
-        ts_pivot = (
-            ts[ts["stay_id"].isin(self.stay_ids)]
-            .sort_values(["stay_id", "hour"])
-            .set_index(["stay_id", "hour"])[ts_features]
-            .fillna(0.0)
-        )
-        stays_ordered = list(self.stay_ids)
-        self.ts_arr = np.zeros((len(stays_ordered), 48, len(ts_features)), dtype=np.float32)
-        for i, sid in enumerate(stays_ordered):
-            if sid in ts_pivot.index.get_level_values("stay_id"):
-                self.ts_arr[i] = ts_pivot.loc[sid].values
+        super().__init__(X_static, y, ts, ts_features)
 
         cxr_cols = [c for c in cxr.columns if c.startswith("cxr_")] if cxr is not None else []
         emb_dim  = len(cxr_cols) if cxr_cols else CXR_EMB_DIM
-        self.cxr_arr = np.zeros((len(stays_ordered), emb_dim), dtype=np.float32)
+        self.cxr_arr = np.zeros((len(self.stay_ids), emb_dim), dtype=np.float32)
         if cxr is not None and cxr_cols:
             cxr_indexed = cxr.set_index("stay_id")
-            for i, sid in enumerate(stays_ordered):
+            for i, sid in enumerate(self.stay_ids):
                 if sid in cxr_indexed.index:
                     self.cxr_arr[i] = cxr_indexed.loc[sid, cxr_cols].values
 
-    def __len__(self): return len(self.stay_ids)
-
     def __getitem__(self, idx):
-        return (
-            torch.tensor(self.ts_arr[idx]),
-            torch.tensor(self.static_arr[idx]),
-            torch.tensor(self.cxr_arr[idx]),
-            torch.tensor(self.labels[idx]),
-        )
-
-
-# Model
-
-class GRUModel(nn.Module):
-    def __init__(self, ts_input_size, static_input_size, hidden_size,
-                 num_layers, static_dim, dropout, use_text=False, text_dim=64):
-        super().__init__()
-        self.use_text = use_text
-        self.gru = nn.GRU(
-            input_size=ts_input_size, hidden_size=hidden_size,
-            num_layers=num_layers, batch_first=True,
-            dropout=dropout if num_layers > 1 else 0.0,
-        )
-        self.static_branch = nn.Sequential(
-            nn.Linear(static_input_size, static_dim), nn.ReLU(), nn.Dropout(dropout),
-        )
-        if use_text:
-            self.text_branch = nn.Sequential(
-                nn.Linear(CXR_EMB_DIM, text_dim), nn.ReLU(), nn.Dropout(dropout),
-            )
-        fusion = hidden_size + static_dim + (text_dim if use_text else 0)
-        self.classifier = nn.Sequential(
-            nn.Dropout(dropout), nn.Linear(fusion, 32),
-            nn.ReLU(), nn.Dropout(dropout), nn.Linear(32, 1),
-        )
-
-    def forward(self, ts, static, text):
-        _, h_n = self.gru(ts)
-        parts  = [h_n[-1], self.static_branch(static)]
-        if self.use_text:
-            parts.append(self.text_branch(text))
-        return self.classifier(torch.cat(parts, dim=1)).squeeze(1)
+        ts_t, static_t, label_t = super().__getitem__(idx)
+        return ts_t, static_t, torch.tensor(self.cxr_arr[idx]), label_t
 
 
 # Load data

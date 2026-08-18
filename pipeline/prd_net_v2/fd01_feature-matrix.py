@@ -14,7 +14,7 @@ Per time-series feature we compute AGG_STATS = mean / last / min / max / slope
 over [0, WINDOW_HOURS). 'slope' is the OLS slope of the feature vs hour using the
 non-missing samples. The continuous static feature `age` is appended.
 => F = 12 TS features x 5 stats + age = 61 difference features, + 16 CXR-derived
-features (01d_extract_radiology_features.py output) if USE_CXR_FEATURES = 77.
+features (baseline/01d_extract_radiology_features.py output) if USE_CXR_FEATURES = 77.
 Stays without a usable CXR report get 0 for every CXR feature, incl. has_cxr_report.
 
 The hard-filter one-hots (icd_*, icu_*, adm_*) and other binary indicators are
@@ -26,7 +26,7 @@ Outputs (window-tagged so 48h/24h coexist):
   fd_scaler_{w}.pkl                             scaler + train medians + names
 
 Run AFTER: upstream preprocessing (X_*/y_*/timeseries.parquet exist),
-           01d_extract_radiology_features.py (if USE_CXR_FEATURES).
+           baseline/01d_extract_radiology_features.py (if USE_CXR_FEATURES).
 """
 
 import pickle

@@ -5,7 +5,7 @@ Aligns MIMIC-CXR radiology reports with the ICU cohort and extracts
 BioClinicalBERT embeddings from the FINDINGS and IMPRESSION sections.
 
 Run AFTER:  01_selection.py
-Run BEFORE: 06_model_gru.py
+Run BEFORE: 07_model_gru.py
 
 Input:   output/cohort.csv
          data/mimic-cxr-2.0.0-metadata.csv
@@ -28,7 +28,6 @@ Notes:
   - 5.367 of 30.615 Stays, 17,5%, have report.
 """
 
-import re
 from pathlib import Path
 
 import numpy as np
@@ -37,7 +36,9 @@ import torch
 from transformers import AutoTokenizer, AutoModel
 from tqdm import tqdm
 
-from config import DATA_DIR, OUTPUT_DIR, OBS_WINDOW
+import sys
+sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
+from config import DATA_DIR, OUTPUT_DIR, OBS_WINDOW, extract_section
 
 # Paths
 CXR_DIR       = DATA_DIR / "mimic-cxr-reports"
@@ -128,18 +129,6 @@ device    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 bert      = bert.to(device)
 bert.eval()
 print(f"  device: {device}")
-
-
-def extract_section(text: str, section: str) -> str:
-    if not isinstance(text, str):
-        return ""
-    text = text.replace("\r", "\n")
-    match = re.search(
-        rf"{section}\s*:\s*(.*?)(?=\n[A-Z ]+\s*:|\Z)",
-        text,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    return match.group(1).strip() if match else ""
 
 
 @torch.no_grad()

@@ -97,7 +97,7 @@ the continuous static `age` and the CXR-derived flags:
   temperature, glucose, gcs_eye, gcs_verbal, gcs_motor, urine_output`
   × 5 stats = 60, **+ age = 61**.
 - **+ 16 CXR-derived flags** (`USE_CXR_FEATURES=True`, from
-  `01d_extract_radiology_features.py`): `has_cxr_report`, 7 pathology flags
+  `baseline/01d_extract_radiology_features.py`): `has_cxr_report`, 7 pathology flags
   (pneumonia, pleural_effusion, pneumothorax, edema, atelectasis, opacity,
   cardiomegaly), `severity_score`, progression (worsening/improved/stable),
   device mentions (ventilator/central_line/chest_tube), `abnormality_count`.
@@ -196,31 +196,32 @@ pipeline/data/
   mimic-cxr-reports/                per-subject radiology report .txt files (p10/, p11/, …)
 ```
 
-> **Gotcha:** `01b_align_cxr_reports.py` expects the CXR metadata *inside*
+> **Gotcha:** `baseline/01b_align_cxr_reports.py` expects the CXR metadata *inside*
 > `mimic-cxr-reports/`. If yours sits directly in `data/`, symlink it once:
 > ```bash
 > ln -s ../mimic-cxr-2.0.0-metadata.csv.gz \
 >   pipeline/data/mimic-cxr-reports/mimic-cxr-2.0.0-metadata.csv.gz
 > ```
 
-**3 · Upstream: cohort → features → GRU → latent PRD** (run from `pipeline/`)
+**3 · Upstream: cohort → features → GRU → latent PRD** (run from `pipeline/`;
+core numbered scripts live in `baseline/`)
 
 ```bash
 cd pipeline
-python3 01_selection.py                     # cohort.csv  (ICU cohort, LOS>7 label)
-python3 01b_align_cxr_reports.py            # cohort_with_cxr.csv
-python3 01c_extract_cxr_sections.py         # cxr_sections.csv       (FINDINGS/IMPRESSION)
-python3 01d_extract_radiology_features.py   # cxr_structured_features.csv (16 CXR flags)
-python3 02_features.py                      # timeseries.parquet, X_*, icd/atc/labels  (RANGE_FILTERS vitals fix applied here)
-python3 03_splitting.py                     # split_ids.parquet      (70/15/15, seeded)
-python3 04_preprocessing.py                 # X_*/y_*                 (median imputation)
-python3 06_normalize.py                     # X_*_scaled + scaler_params
-python3 07_model_gru.py                     # best_gru_model.pt       (GRU, 30 epochs, CPU)
+python3 baseline/01_selection.py                     # cohort.csv  (ICU cohort, LOS>7 label)
+python3 baseline/01b_align_cxr_reports.py            # cohort_with_cxr.csv
+python3 baseline/01c_extract_cxr_sections.py         # cxr_sections.csv       (FINDINGS/IMPRESSION)
+python3 baseline/01d_extract_radiology_features.py   # cxr_structured_features.csv (16 CXR flags)
+python3 baseline/02_features.py                      # timeseries.parquet, X_*, icd/atc/labels  (RANGE_FILTERS vitals fix applied here)
+python3 baseline/03_splitting.py                     # split_ids.parquet      (70/15/15, seeded)
+python3 baseline/04_preprocessing.py                 # X_*/y_*                 (median imputation)
+python3 baseline/06_normalize.py                     # X_*_scaled + scaler_params
+python3 baseline/07_model_gru.py                     # best_gru_model.pt       (GRU, 30 epochs, CPU)
 python3 prd_net/01_extract-embeddings.py    # prd_net_embeddings.pkl
 python3 prd_net/02_peer-groups.py           # prd_net_peers.pkl
 python3 prd_net/04_prd-train.py             # prd_net/checkpoints/prd_net_v1.pt (+ threshold)
 python3 prd_net/05_prd-inference.py         # (optional) latent-PRD test metrics
-# optional EDA / cross-val: 05_analysis.py, 08_crossval.py
+# optional EDA / cross-val: baseline/05_analysis.py, baseline/08_crossval.py
 ```
 
 **4 · This track — both windows** (run from `pipeline/prd_net_v2/`)
@@ -244,7 +245,7 @@ sidebar toggle, no config edit needed).
   `DataLoader(shuffle=True)` on CPU is close but not bit-identical run to run, so
   downstream metrics can wobble by ~0.01.
 - **Vitals fix:** `config.py` `RANGE_FILTERS` reject probe-disconnect zeros
-  (SpO₂/BP = 0, etc.); this only takes effect when `02_features.py` re-parses the
+  (SpO₂/BP = 0, etc.); this only takes effect when `baseline/02_features.py` re-parses the
   raw data — a v2-only re-run reuses the existing `timeseries.parquet`.
 - **24h upstream:** GRU / latent-PRD only see the first 48h; genuinely comparable
   24h GRU/old-PRD rows stay "n/a" until the upstream scripts are
@@ -290,7 +291,7 @@ old PRD and (their) baselines are 48h-only. Test-set results:
 | New PRD (feature-diff) | 48h | 0.598 | 0.836 | 0.617 |
 | New PRD (feature-diff) | 24h | 0.558 | 0.801 | 0.556 |
 
-(GRU/old PRD: full-rebuild numbers, 2026-07-26, from `07_model_gru.py` /
+(GRU/old PRD: full-rebuild numbers, 2026-07-26, from `baseline/07_model_gru.py` /
 `prd_net/05_prd-inference.py` — unaffected by this track's `RETRIEVAL_SPACE`
 switch, so still current. New PRD: refreshed 2026-08-13 under the `feature`
 retrieval default, from `fd_metrics_{w}h.json` — the same test set and

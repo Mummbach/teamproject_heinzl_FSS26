@@ -80,11 +80,9 @@ teamproject_heinzl_FSS26/
 
 > **Note on `requirements.txt`**: `pipeline/requirements.txt` is the single, curated
 > dependency list for this project — pinned to the versions the reported results
-> were produced with (see setup below). There used to be a second, unmaintained
-> `requirements.txt` at the repo root (a raw `pip freeze` snapshot of one
-> contributor's local env) and a third under the pre-restructure `archive/`
-> directory (since removed entirely); all were stale relative to the actual
-> code and have been removed to avoid drift.
+> were produced with (see setup below). Other, unmaintained copies used to exist
+> elsewhere in the repo (raw `pip freeze` snapshots that had gone stale relative
+> to the actual code); those have been removed to avoid drift.
 
 > **Note on `explainability/`**: this folder used to hold a second, independently-maintained
 > implementation of the SHAP/explainability/TimeSHAP logic that already lives in

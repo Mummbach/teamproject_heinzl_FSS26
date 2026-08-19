@@ -7,8 +7,8 @@ Respects the same flags as 07_model_gru.py:
   USE_TEXT  — include CXR text branch
   CXR_ONLY  — restrict cohort to patients with CXR report
 
-Run AFTER:  06_normalize.py
-            02b_cxr_features.py  (if USE_TEXT = True)
+Run AFTER:  preprocessing/06_normalize.py
+            preprocessing/02b_cxr_features.py  (if USE_TEXT = True)
 
 Output:  prints best hyperparameters and val F1
          output/best_hparams.txt

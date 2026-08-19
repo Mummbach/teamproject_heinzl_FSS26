@@ -47,7 +47,7 @@ ABS_FEATURES = frozenset(C.absolute_feature_names())
 # columns) are left unchanged so exports, code, and cached parquet files don't
 # need to move — only the label shown in charts/tables here is remapped.
 #   "ventilator"   — column actually flags ET-tube/intubation mentions
-#                    (DEVICE_TERMS in baseline/01d_extract_radiology_features.py), not
+#                    (DEVICE_TERMS in preprocessing/01d_extract_radiology_features.py), not
 #                    the literal word "ventilator".
 #   "central_line" — column name is already accurate ICU terminology.
 FEATURE_LABELS = {

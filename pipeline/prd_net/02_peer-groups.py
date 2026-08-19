@@ -8,10 +8,10 @@ clinically comparable (similar age) but split by outcome:
 
 These peer pairs are the training signal for the peer-retrieval network (Step 3).
 
-Column names (derived from baseline pipeline — do not guess):
-  ICD chapter : 18 binary columns icd_<category>  (baseline/02_features.py)
+Column names (derived from preprocessing pipeline — do not guess):
+  ICD chapter : 18 binary columns icd_<category>  (preprocessing/02_features.py)
                 categories defined in config.ICD_CATEGORIES
-  ICU type    : 7 binary columns icu_<unit>        (baseline/04_preprocessing.py)
+  ICU type    : 7 binary columns icu_<unit>        (preprocessing/04_preprocessing.py)
                 icu_micu, icu_sicu, icu_ccu, icu_cvicu,
                 icu_micu_sicu, icu_tsicu, icu_neuro_sicu
 """
@@ -27,13 +27,13 @@ from tqdm import tqdm
 sys.path.append(str(Path(__file__).parent.parent))
 from config import ICD_CATEGORIES
 
-# Exact column names as created by baseline/04_preprocessing.py
+# Exact column names as created by preprocessing/04_preprocessing.py
 ICU_COLS = [
     "icu_micu", "icu_sicu", "icu_ccu", "icu_cvicu",
     "icu_micu_sicu", "icu_tsicu", "icu_neuro_sicu",
 ]
 
-# ICD chapter columns derived from config.ICD_CATEGORIES (baseline/02_features.py)
+# ICD chapter columns derived from config.ICD_CATEGORIES (preprocessing/02_features.py)
 ICD_COLS = [f"icd_{cat}" for cat in ICD_CATEGORIES]
 
 # Admission type columns — emergency vs elective patients have different LOS trajectories

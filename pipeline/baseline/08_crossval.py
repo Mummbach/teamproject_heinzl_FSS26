@@ -16,7 +16,7 @@ Steps:
   4. Report mean ± std across folds
   5. Train final RF on full train+val, evaluate on fixed test set
 
-Run AFTER:  04_preprocessing.py
+Run AFTER:  preprocessing/04_preprocessing.py
 
 Input:   output/X_train.parquet  output/y_train.parquet
          output/X_val.parquet    output/y_val.parquet

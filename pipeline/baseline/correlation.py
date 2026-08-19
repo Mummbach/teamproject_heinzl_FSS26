@@ -5,8 +5,8 @@ Loads all engineered features, merges them, and computes pairwise Pearson
 correlation. Feature pairs above |r| > 0.8 are identified and one of each
 pair is flagged for removal to reduce redundancy before model training.
 
-Run AFTER:  02_features.py  (ts_features, icd_features, atc_features must exist)
-            01_selection.py (cohort.csv must exist)
+Run AFTER:  preprocessing/02_features.py  (ts_features, icd_features, atc_features must exist)
+            preprocessing/01_selection.py (cohort.csv must exist)
 
 Note: This is an exploratory/analysis step — it does not write output files.
       Inspect results to inform feature selection in downstream steps.
@@ -32,7 +32,7 @@ from config import OUTPUT_DIR
 THRESHOLD = 0.8
 
 # ## Load feature data
-# Load the parquet files produced by `02_features.py` — these are the actual model features before any scaling or imputation.
+# Load the parquet files produced by `preprocessing/02_features.py` — these are the actual model features before any scaling or imputation.
 
 ts     = pd.read_parquet(OUTPUT_DIR / "ts_features.parquet")
 icd    = pd.read_parquet(OUTPUT_DIR / "icd_features.parquet")

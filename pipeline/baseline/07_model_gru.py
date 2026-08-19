@@ -9,8 +9,8 @@ Architecture:
   - Fusion:        concatenates GRU final hidden state + static embedding
   - Output:        single sigmoid neuron (binary classification)
 
-Run AFTER:  06_normalize.py  (scaled static features)
-            02_features.py   (timeseries.parquet must exist)
+Run AFTER:  preprocessing/06_normalize.py  (scaled static features)
+            preprocessing/02_features.py   (timeseries.parquet must exist)
 
 Input:   output/X_train_scaled.parquet  /  X_val_scaled  /  X_test_scaled
          output/y_train.parquet         /  y_val         /  y_test

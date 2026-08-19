@@ -9,13 +9,13 @@
 
 The pipeline behaviour is controlled by flags at the top of each script — no code changes needed, just flip the value and re-run.
 
-### `pipeline/baseline/01_selection.py`
+### `pipeline/preprocessing/01_selection.py`
 
 | Variable | Values | Description |
 |---|---|---|
 | `EXCLUDE_EARLY_DEATHS` | `False` (default) / `True` | Exclude patients who died between 48h and 7d after ICU admission (bias check) |
 
-### `pipeline/baseline/04_preprocessing.py`
+### `pipeline/preprocessing/04_preprocessing.py`
 
 | Variable | Values | Description |
 |---|---|---|
@@ -58,9 +58,12 @@ teamproject_heinzl_FSS26/
 │   ├── data/                  # raw MIMIC-IV / MIMIC-CXR tables (gitignored, PhysioNet-credentialed)
 │   ├── output/                # generated features/models/plots, shared across all three tracks (gitignored)
 │   │
-│   ├── baseline/               # 01–14: cohort → features → GRU baseline (the "core" numbered pipeline)
-│   │   ├── 01_selection.py … 01e_extract_bioclinicalbert_embeddings.py   # optional CXR/BERT chain
-│   │   ├── 02_features.py, 03_splitting.py, 04_preprocessing.py, 06_normalize.py
+│   ├── preprocessing/           # 01–06: cohort → features → split → impute → normalize (shared by all 3 tracks below)
+│   │   ├── 01_selection.py … 01d_extract_radiology_features.py          # optional CXR chain
+│   │   ├── 02_features.py, 02b_cxr_features.py, 03_splitting.py
+│   │   └── 04_preprocessing.py, 05_analysis.py, 06_normalize.py
+│   │
+│   ├── baseline/                # 07–14: GRU baseline model + its explainability/monitoring
 │   │   ├── 07_model_gru.py, 08_crossval.py, 08b_hyperparameter_search.py
 │   │   ├── 09_shap.py, 10_explainability.py, 11_timeshap.py             # baseline GRU explainability
 │   │   ├── 12_ts_monitoring.py … 14_patient_mii_clustering.py           # monitoring-intensity track

@@ -146,8 +146,8 @@ ICD_CATEGORIES = [
 ATC1_CODES = list("ABCDGHJLMNPRSV")
 
 # ── Radiology report section parser ──────────────────────────────────────────
-# Shared by baseline/01c_extract_cxr_sections.py, baseline/01e_extract_bioclinicalbert_embeddings.py,
-# and baseline/02b_cxr_features.py — all three pull FINDINGS/IMPRESSION out of raw
+# Shared by preprocessing/01c_extract_cxr_sections.py and preprocessing/02b_cxr_features.py —
+# both pull FINDINGS/IMPRESSION out of raw
 # MIMIC-CXR report text using the same regex.
 def extract_section(text: str, section_name: str) -> str:
     """

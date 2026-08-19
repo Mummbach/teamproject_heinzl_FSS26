@@ -73,10 +73,19 @@ teamproject_heinzl_FSS26/
 │   └── explainability/         # shap_prdnet.py — SHAP explanations for prd_net v1 (the only file here; see note below)
 │
 ├── archive/                    # earlier pre-restructure notebooks/figures/results, kept for reference only
+│                                # (unmaintained — no separate requirements.txt; see note below)
 ├── docs/                       # misc process/spec docs
-├── presentations/              # slide decks
-└── requirements.txt             # full dev-env freeze; pipeline/requirements.txt is the curated, pinned runtime list
+└── presentations/              # slide decks
 ```
+
+> **Note on `requirements.txt`**: `pipeline/requirements.txt` is the single, curated
+> dependency list for this project — pinned to the versions the reported results
+> were produced with (see setup below). There used to be a second, unmaintained
+> `requirements.txt` at the repo root (a raw `pip freeze` snapshot of one
+> contributor's local env) and a third under `archive/`; both were stale relative to
+> the actual code and have been removed to avoid drift. `archive/` holds pre-restructure
+> notebooks kept for historical reference only — it isn't run as part of the pipeline
+> and has no dependency list of its own.
 
 > **Note on `explainability/`**: this folder used to hold a second, independently-maintained
 > implementation of the SHAP/explainability/TimeSHAP logic that already lives in
@@ -186,14 +195,10 @@ If it runs without error — 🎉 you're ready to go!
 ### 🧠 Notes
 
 - `venv/` is excluded from Git via `.gitignore` — never push it.
-- If you install new packages, update the team's dependency list:
-
-```bash
-pip freeze > requirements.txt
-git add requirements.txt
-git commit -m "Update dependencies"
-git push
-```
+- If you install a new package, add it by hand to `pipeline/requirements.txt` with a
+  pinned version and a short comment on which script needs it — don't overwrite the
+  file with a raw `pip freeze` (that's how it drifted out of sync with the code
+  before).
 
 ---
 

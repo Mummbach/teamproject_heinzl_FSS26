@@ -16,6 +16,7 @@ tqdm==4.67.3
 
 # Visualisation / explanation
 matplotlib==3.10.8      # 05_analysis EDA plots (optional stage)
+seaborn==0.13.2         # correlation.py, 12_ts_monitoring.py, 13_ts_monitoring_regimes.py
 plotly==6.6.0           # fd07_report.py standalone HTML dashboards
 shap==0.49.1            # fd05_diff-explain.py  (w·Δ == SHAP sanity check)
 streamlit==1.58.0       # fd07_dashboard.py     (interactive dashboard)
@@ -24,3 +25,4 @@ streamlit==1.58.0       # fd07_dashboard.py     (interactive dashboard)
 # core run (unpinned: not installed in the reference environment):
 optuna                  # 08_hyperparameter_search.py (GRU hyperparameter search)
 transformers            # 02b_cxr_features.py / 01e_extract_bioclinicalbert_embeddings.py (BioClinicalBERT)
+umap-learn              # 14_patient_mii_clustering.py (falls back gracefully if absent)

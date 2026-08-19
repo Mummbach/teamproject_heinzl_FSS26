@@ -19,6 +19,8 @@ Input:   output/X_train_scaled.parquet  /  X_val_scaled  /  X_test_scaled
 
 Output:  output/best_gru_model.pt       — best checkpoint (by val F1)
          output/training_log.csv        — per-epoch metrics
+         output/predictions.parquet     — stay_id / y_prob / y_pred / split for train+val+test,
+                                           consumed by 09_shap.py, 10_explainability.py, 11_timeshap.py
 """
 
 import pandas as pd
@@ -231,3 +233,39 @@ log_df = pd.DataFrame(log_rows)
 log_df.to_csv(OUTPUT_DIR / "training_log.csv", index=False)
 print(f"\nSaved: output/best_gru_model.pt")
 print(f"Saved: output/training_log.csv")
+
+# ── Save predictions.parquet ────────────────────────────────────────────
+# stay_id → y_prob, y_pred for every split, from the best checkpoint
+# (already loaded above for test evaluation). Downstream explainability
+# scripts (09_shap.py, 10_explainability.py, 11_timeshap.py) load this
+# instead of re-running the model.
+
+@torch.no_grad()
+def get_predictions(model, loader, stay_ids):
+    model.eval()
+    all_logits = []
+    for ts_batch, static_batch, _ in loader:
+        ts_batch, static_batch = ts_batch.to(DEVICE), static_batch.to(DEVICE)
+        all_logits.append(model(ts_batch, static_batch).cpu().numpy())
+    logits = np.concatenate(all_logits)
+    probs  = 1 / (1 + np.exp(-logits))
+    preds  = (probs >= 0.5).astype(int)
+    return pd.DataFrame({"stay_id": stay_ids, "y_prob": probs, "y_pred": preds})
+
+# train_loader was built with shuffle=True for training — reusing it here would
+# desync the returned probs from X_train["stay_id"], so use an unshuffled loader.
+train_eval_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=False)
+
+pred_rows = []
+for split_name, X_split, loader in [
+    ("train", X_train, train_eval_loader),
+    ("val",   X_val,   val_loader),
+    ("test",  X_test,  test_loader),
+]:
+    df_pred = get_predictions(model, loader, X_split["stay_id"].values)
+    df_pred["split"] = split_name
+    pred_rows.append(df_pred)
+
+predictions = pd.concat(pred_rows, ignore_index=True)
+predictions.to_parquet(OUTPUT_DIR / "predictions.parquet", index=False)
+print(f"Saved: output/predictions.parquet  ({len(predictions):,} stays)")

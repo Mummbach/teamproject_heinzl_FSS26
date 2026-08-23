@@ -131,10 +131,9 @@ def _attach_cxr_features(mat: pd.DataFrame, cxr_df: pd.DataFrame | None) -> pd.D
     aligned = cxr_df.reindex(mat.index)
     present = aligned.notna().any(axis=1)
     flag_cols = [c for c in C.CXR_FEATURES if c != "has_cxr_report"]
-    for c in flag_cols:
-        mat[c] = aligned[c].fillna(0.0).astype(np.float32)
-    mat["has_cxr_report"] = present.astype(np.float32)
-    return mat
+    new_cols = {c: aligned[c].fillna(0.0).astype(np.float32) for c in flag_cols}
+    new_cols["has_cxr_report"] = present.astype(np.float32)
+    return pd.concat([mat, pd.DataFrame(new_cols, index=mat.index)], axis=1)
 
 
 def build_raw_matrix(ts: pd.DataFrame, X_split: pd.DataFrame,
@@ -162,8 +161,8 @@ def build_raw_matrix(ts: pd.DataFrame, X_split: pd.DataFrame,
     # Absolute (non-diff) hard-filter one-hots, appended after the diff-feature
     # block — see config_fd.absolute_feature_names(). Pulled straight from
     # X_split, which is already in the exact row order of `stay_ids`.
-    for col in C.absolute_feature_names():
-        mat[col] = X_split[col].to_numpy(dtype=np.float32)
+    abs_cols = {col: X_split[col].to_numpy(dtype=np.float32) for col in C.absolute_feature_names()}
+    mat = pd.concat([mat, pd.DataFrame(abs_cols, index=mat.index)], axis=1)
 
     assert list(mat.index) == list(stay_ids), "feature matrix row order != X_split"
     return mat
@@ -201,7 +200,9 @@ if __name__ == "__main__":
     # Impute missing cells with TRAIN medians (computed before scaling), then
     # standardize with TRAIN stats. Medians are persisted for reproducibility.
     medians = raw["train"].median(axis=0)
-    raw = {s: m.fillna(medians) for s, m in raw.items()}
+    # fillna(Series) fills column-by-column internally, fragmenting the block
+    # manager (one block per filled column); .copy() re-consolidates it.
+    raw = {s: m.fillna(medians).copy() for s, m in raw.items()}
 
     scaler = StandardScaler().fit(raw["train"].values)
     scaled = {

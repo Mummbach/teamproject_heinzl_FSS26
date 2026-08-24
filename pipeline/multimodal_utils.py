@@ -47,6 +47,96 @@ def get_cxr_feature_groups(static_features: list[str]) -> dict:
     }
 
 
+# ── Correlated-feature grouping for SHAP display ─────────────────────────────
+# Several static features are near-duplicates of each other (e.g. heart_rate_mean
+# vs heart_rate_median, or dbp_mean vs map_mean, r > 0.9 on train). SHAP has no
+# way to know two such columns carry almost the same information, so it can
+# split credit between them arbitrarily -- observed empirically: dbp_mean and
+# map_mean get opposite-signed SHAP values for 85% of test patients even
+# though the two inputs move together. Grouping correlated features before
+# display reports one combined, stable number instead of two that can
+# contradict each other for the same patient.
+
+def group_correlated_static_features(X_train_static, threshold: float = 0.85) -> dict:
+    """Cluster columns of X_train_static (fit on train only) whose pairwise
+    Pearson |correlation| exceeds `threshold`.
+
+    Uses complete-linkage (clique) merging, not simple transitive union-find:
+    a candidate merge is only accepted if EVERY pair in the resulting group
+    exceeds `threshold`, not just a chain through one shared "hub" column.
+    This matters because a hub like gcs_total_mean correlates > 0.85 with
+    each of gcs_eye/verbal/motor_mean individually (it's their sum), but
+    those three are only ~0.7-0.84 correlated with EACH OTHER -- clinically
+    distinct sub-scores that a naive transitive merge would wrongly fold
+    into one bucket. dbp/map's mean+median, by contrast, are all pairwise
+    > 0.85 with each other and correctly form one group.
+
+    Returns {group_id: [member_feature_names, ...]}, sorted; group_id is the
+    shortest member name (deterministic, human-readable).
+    """
+    feats = list(X_train_static.columns)
+    corr = X_train_static[feats].corr()
+    corr_arr = corr.values
+    n = len(feats)
+
+    # groups[i] = the group (list of feature indices) that feature i belongs to
+    groups = [[i] for i in range(n)]
+    group_of = list(range(n))  # feature index -> position in `groups`
+
+    edges = [
+        (abs(corr_arr[i, j]), i, j)
+        for i in range(n) for j in range(i + 1, n)
+        if np.isfinite(corr_arr[i, j]) and abs(corr_arr[i, j]) > threshold
+    ]
+    edges.sort(reverse=True)  # merge strongest correlations first
+
+    for _, i, j in edges:
+        gi, gj = group_of[i], group_of[j]
+        if gi == gj:
+            continue
+        candidate = groups[gi] + groups[gj]
+        # Complete-linkage check: every pair in the merged group must clear threshold
+        if all(
+            abs(corr_arr[a, b]) > threshold
+            for idx_a, a in enumerate(candidate) for b in candidate[idx_a + 1:]
+        ):
+            for m in candidate:
+                group_of[m] = gi
+            groups[gi] = candidate
+            groups[gj] = []
+
+    clusters = [g for g in groups if g]
+    return {
+        min((feats[i] for i in members), key=len): sorted(feats[i] for i in members)
+        for members in clusters
+    }
+
+
+def grouped_shap(shap_values: np.ndarray, feature_names: list[str], groups: dict) -> tuple[np.ndarray, list[str]]:
+    """Sum per-column SHAP values within each correlated group.
+
+    shap_values: (N, F) array aligned with feature_names.
+    groups: output of group_correlated_static_features().
+
+    Returns (grouped_values (N, n_groups), display_labels) where a group of
+    size 1 keeps its plain name and a group of size > 1 is labeled
+    "name (+k correlated: ...)" so it's clear the number is a combined signal.
+    """
+    idx = {f: i for i, f in enumerate(feature_names)}
+    grouped_cols, labels = [], []
+    for group_id, members in groups.items():
+        cols = [idx[m] for m in members if m in idx]
+        if not cols:
+            continue
+        grouped_cols.append(shap_values[:, cols].sum(axis=1))
+        if len(members) == 1:
+            labels.append(group_id)
+        else:
+            others = ", ".join(m for m in members if m != group_id)
+            labels.append(f"{group_id} (+{len(members) - 1} correlated: {others})")
+    return np.stack(grouped_cols, axis=1), labels
+
+
 # ── Dataset ────────────────────────────────────────────────────────────────
 
 class ICUDataset(Dataset):

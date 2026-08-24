@@ -52,7 +52,7 @@ sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / m
 from config import OUTPUT_DIR
 from multimodal_utils import (
     ICUDataset, GRUModel, SHAPWrapper, load_multimodal_model,
-    get_cxr_feature_groups,
+    get_cxr_feature_groups, group_correlated_static_features, grouped_shap,
 )
 
 SEED       = 42
@@ -125,8 +125,25 @@ print("GradientExplainer created.")
 # or DOWN (blue) relative to the model's average prediction (base value).
 # Starting at E[f(x)] on the left, each bar adds or subtracts its SHAP
 # value until we arrive at this patient's prediction f(x) on the right.
+#
+# Bars are grouped: several static features are near-duplicates of each
+# other (e.g. heart_rate_mean vs heart_rate_median, dbp_mean vs map_mean,
+# r > 0.85 on train). Shown individually, SHAP can split credit between
+# them arbitrarily -- confirmed empirically: dbp_mean/map_mean get
+# opposite-signed SHAP for 85% of test patients despite moving together,
+# which would show a clinician two bars pointing in opposite directions for
+# what is really one physiological signal. Grouping sums the SHAP values of
+# correlated features into one bar per underlying signal before ranking/
+# plotting; the individual raw value ("=1.23") is only shown for ungrouped
+# (singleton) features, since a summed value across correlated columns
+# would not be a meaningful clinical number.
 
 print("\n─── A) Waterfall Plots ───────────────────────────────────────────")
+
+corr_groups = group_correlated_static_features(X_train[STATIC_FEATURES], threshold=0.85)
+n_multi = sum(1 for members in corr_groups.values() if len(members) > 1)
+print(f"  {len(STATIC_FEATURES)} static features -> {len(corr_groups)} groups "
+      f"({n_multi} contain >1 correlated feature)")
 
 # Pick 3 representative patients from the test set
 test_preds_sorted = test_preds.sort_values("y_prob").reset_index(drop=True)
@@ -146,7 +163,16 @@ test_expl_indexed = test_expl.set_index("stay_id")
 base_value = float(test_preds["y_prob"].mean())
 # base_value is the mean test prediction — an approximation of E[f(x)] over the background set
 
-TOP_N_WATERFALL = 15   # features shown in each waterfall
+TOP_N_WATERFALL = 15   # groups shown in each waterfall
+
+# Group index -> raw feature name, only for singleton groups (a summed value
+# across correlated columns, e.g. dbp_mean + map_mean, has no single clinical
+# reading, so only ungrouped features get a "= value" annotation below).
+group_singleton_feat = [
+    members[0] if len(members) == 1 else None
+    for members in corr_groups.values()
+]
+feat_idx = {f: i for i, f in enumerate(STATIC_FEATURES)}
 
 for case_name, patient_row in patient_cases.items():
     sid      = patient_row["stay_id"]
@@ -157,24 +183,30 @@ for case_name, patient_row in patient_cases.items():
         print(f"  WARNING: stay_id {sid} not in explanations — skipping {case_name}")
         continue
 
-    shap_row    = test_expl_indexed.loc[sid, STATIC_FEATURES].values.astype(float)
-    feature_row = X_test.set_index("stay_id").loc[sid, STATIC_FEATURES].values.astype(float)
+    shap_row_raw = test_expl_indexed.loc[sid, STATIC_FEATURES].values.astype(float)
+    feature_row  = X_test.set_index("stay_id").loc[sid, STATIC_FEATURES].values.astype(float)
 
-    # Sort features by |SHAP| descending; keep top N
+    grouped_row, group_labels = grouped_shap(shap_row_raw[None, :], STATIC_FEATURES, corr_groups)
+    shap_row = grouped_row[0]  # (n_groups,) — sums to the same total as shap_row_raw
+
+    # Sort groups by |SHAP| descending; keep top N
     order      = np.argsort(np.abs(shap_row))[::-1]
     top_idx    = order[:TOP_N_WATERFALL]
     top_shap   = shap_row[top_idx]
-    top_names  = [STATIC_FEATURES[i] for i in top_idx]
-    top_vals   = feature_row[top_idx]
+    top_names  = [group_labels[i] for i in top_idx]
+    top_vals   = np.array([
+        feature_row[feat_idx[group_singleton_feat[i]]] if group_singleton_feat[i] is not None else np.nan
+        for i in top_idx
+    ])
 
-    # Residual: sum of all shap values NOT shown
+    # Residual: sum of all group SHAP values NOT shown
     residual = shap_row.sum() - top_shap.sum()
 
     fig, ax = plt.subplots(figsize=(9, 6))
 
     # Build cumulative baseline for waterfall bars
     shap_with_residual = np.append(top_shap, residual)
-    names_with_residual = top_names + [f"... {len(STATIC_FEATURES) - TOP_N_WATERFALL} others"]
+    names_with_residual = top_names + [f"... {len(corr_groups) - TOP_N_WATERFALL} others"]
 
     cumulative   = base_value
     bar_bottoms  = []
@@ -229,33 +261,44 @@ for case_name, patient_row in patient_cases.items():
 # (x-axis) and its SHAP contribution (y-axis) across all test patients.
 # Unlike a global bar chart, it reveals non-linear effects and thresholds:
 # e.g., "age only matters above 65" or "high heart rate always hurts".
+#
+# Top-3 is picked from GROUPED (correlated features combined, see the
+# waterfall section above) mean |SHAP| — otherwise two near-duplicate raw
+# columns (e.g. heart_rate_mean and heart_rate_median) could occupy 2 of
+# the 3 "top" slots for what is really one signal, crowding out a genuinely
+# different third feature. The scatter itself still needs one concrete
+# x-axis value, so it plots the group's representative (shortest-named)
+# member's own value against the group's SUMMED SHAP.
 
 print("\n─── B) Dependence Plots ─────────────────────────────────────────")
 
 test_static_shap = test_expl[STATIC_FEATURES].values         # (N_test, F)
 test_static_vals = X_test.drop(columns=["stay_id"]).values   # (N_test, F)
 
-mean_abs_shap = np.abs(test_static_shap).mean(axis=0)
-top3_idx      = np.argsort(mean_abs_shap)[::-1][:3]
-top3_names    = [STATIC_FEATURES[i] for i in top3_idx]
+grouped_test_shap, group_labels_b = grouped_shap(test_static_shap, STATIC_FEATURES, corr_groups)
+mean_abs_grouped_b = np.abs(grouped_test_shap).mean(axis=0)
+top3_group_idx = np.argsort(mean_abs_grouped_b)[::-1][:3]
+group_ids      = list(corr_groups.keys())  # same order grouped_shap() iterated corr_groups in
+top3_repr_feat = [group_ids[i] for i in top3_group_idx]
+top3_labels    = [group_labels_b[i] for i in top3_group_idx]
 
-print(f"  Top-3 static features: {top3_names}")
+print(f"  Top-3 GROUPED static features: {top3_labels}")
 
 fig, axes = plt.subplots(1, 3, figsize=(15, 5))
 
-for ax, idx, name in zip(axes, top3_idx, top3_names):
-    x_vals  = test_static_vals[:, idx]
-    y_shap  = test_static_shap[:, idx]
+for ax, gi, repr_feat, label in zip(axes, top3_group_idx, top3_repr_feat, top3_labels):
+    x_vals  = test_static_vals[:, feat_idx[repr_feat]]
+    y_shap  = grouped_test_shap[:, gi]
 
-    # Color points by the feature's own value for extra depth
+    # Color points by the representative feature's own value for extra depth
     sc = ax.scatter(x_vals, y_shap, c=x_vals, cmap="coolwarm",
                     s=12, alpha=0.6, linewidths=0)
     plt.colorbar(sc, ax=ax, label="Feature value")
 
     ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
-    ax.set_xlabel(name, fontsize=10)
-    ax.set_ylabel("SHAP value", fontsize=10)
-    ax.set_title(f"{name}\nmean|SHAP| = {mean_abs_shap[idx]:.4f}", fontsize=10)
+    ax.set_xlabel(repr_feat, fontsize=10)
+    ax.set_ylabel("SHAP value (grouped)", fontsize=10)
+    ax.set_title(f"{label}\nmean|SHAP| (grouped) = {mean_abs_grouped_b[gi]:.4f}", fontsize=9)
 
 fig.suptitle("SHAP Dependence Plots — Top-3 Static Features (Test Set)", fontsize=12)
 plt.tight_layout()

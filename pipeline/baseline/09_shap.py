@@ -44,7 +44,7 @@ sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / m
 from config import OUTPUT_DIR
 from multimodal_utils import (
     ICUDataset, GRUModel, SHAPWrapper, load_multimodal_model,
-    get_cxr_feature_groups,
+    get_cxr_feature_groups, group_correlated_static_features, grouped_shap,
 )
 
 SEED       = 42
@@ -235,3 +235,51 @@ if HAS_CXR_FEATURES:
     print(f"  Baseline clinical : {mean_abs[groups['baseline']].mean():.4f}")
     print(f"  CXR structured    : {mean_abs[groups['cxr_struct']].mean():.4f}" if groups['cxr_struct'] else "")
     print(f"  BERT PCA          : {mean_abs[groups['bert_pca']].mean():.4f}"   if groups['bert_pca']   else "")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# GROUPED SHAP — correlated static features combined
+# ═══════════════════════════════════════════════════════════════════════
+# Several static features are near-duplicates of each other (e.g.
+# heart_rate_mean vs heart_rate_median, or dbp_mean vs map_mean, r > 0.85 on
+# train). Individually, SHAP has no way to know two such columns carry
+# almost the same information and can split credit between them
+# arbitrarily -- confirmed empirically: dbp_mean/map_mean get opposite-signed
+# SHAP for 85% of test patients despite moving together. This section sums
+# SHAP within each correlated group (fit on train only) so the top-feature
+# ranking and plot report one stable, combined number per underlying signal
+# instead of several that can contradict each other for the same patient.
+# The raw, ungrouped outputs above are kept unchanged for anyone who wants
+# the per-column detail.
+
+print("\n─── Grouped SHAP (correlated static features combined) ────────────")
+
+corr_groups = group_correlated_static_features(X_train[STATIC_FEATURES], threshold=0.85)
+n_multi = sum(1 for members in corr_groups.values() if len(members) > 1)
+print(f"  {len(STATIC_FEATURES)} static features -> {len(corr_groups)} groups "
+      f"({n_multi} contain >1 correlated feature)")
+
+grouped_vals, grouped_labels = grouped_shap(test_static_shap, STATIC_FEATURES, corr_groups)
+mean_abs_grouped = pd.Series(
+    np.abs(grouped_vals).mean(axis=0), index=grouped_labels
+).sort_values(ascending=False)
+
+print(f"\nTop 10 GROUPED static features by mean |SHAP| (test set):")
+for feat, val in mean_abs_grouped.head(10).items():
+    print(f"  {feat:<70} {val:.4f}")
+
+top20_grouped = mean_abs_grouped.head(20).sort_values()
+fig, ax = plt.subplots(figsize=(11, 8))
+ax.barh(range(len(top20_grouped)), top20_grouped.values, color="#82c28e")
+ax.set_yticks(range(len(top20_grouped)))
+ax.set_yticklabels(top20_grouped.index, fontsize=8)
+ax.set_xlabel("Mean |SHAP| (test set)")
+ax.set_title(
+    "Grouped SHAP Feature Importance — Static Features (Test Set)\n"
+    "correlated features (|r| > 0.85 on train) combined into one bar",
+    fontsize=12,
+)
+plt.tight_layout()
+plt.savefig(OUTPUT_DIR / "shap_summary_grouped.png", dpi=150, bbox_inches="tight")
+plt.close()
+print("\nSaved: output/shap_summary_grouped.png")

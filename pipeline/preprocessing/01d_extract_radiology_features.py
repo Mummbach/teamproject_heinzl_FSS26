@@ -156,12 +156,22 @@ def contains_term(text, terms):
 
 def negated(text, keyword):
     """
-    Simple negation detection.
+    Simple negation detection, scoped to the sentence containing the keyword.
+
+    The old pattern matched "(no|without|negative for) ... keyword" over the
+    whole report with no clause boundary, so a negation earlier in the report
+    could falsely negate an unrelated, confirmed finding later on, e.g.
+    "no evidence of pneumothorax and pneumonia is present" marked pneumonia
+    as negated. Splitting on sentence punctuation keeps the check local.
     """
 
     pattern = rf"(no|without|negative for)\s+[\w\s]*{keyword}"
 
-    return re.search(pattern, text) is not None
+    for sentence in re.split(r"[.;]", text):
+        if keyword in sentence and re.search(pattern, sentence):
+            return True
+
+    return False
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Extract pathology features

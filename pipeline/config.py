@@ -165,6 +165,23 @@ def extract_section(text: str, section_name: str) -> str:
     return match.group(1).strip() if match else ""
 
 
+# ── Optional CXR-derived static features (baseline track) ────────────────────
+# Interpretable per-report flags from preprocessing/01d_extract_radiology_features.py.
+# Off by default: today's baseline checkpoints/SHAP outputs were produced without
+# these columns, so leaving this off keeps 04_preprocessing.py reproducible as-is.
+# report_length/sentence_count are excluded — see prd_net_v2/config_fd.py's
+# CXR_FEATURES comment for why (documentation-verbosity confound).
+USE_CXR_FEATURES = False
+CXR_FEATURE_PATH = OUTPUT_DIR / "cxr_structured_features.csv"
+CXR_FEATURES = [
+    "has_cxr_report",
+    "pneumonia", "pleural_effusion", "pneumothorax", "edema",
+    "atelectasis", "opacity", "cardiomegaly",
+    "severity_score", "worsening", "improved", "stable",
+    "ventilator", "central_line", "chest_tube",
+    "abnormality_count",
+]
+
 ATC1_COL_NAMES = {
     "A": "atc_alimentary",
     "B": "atc_blood",

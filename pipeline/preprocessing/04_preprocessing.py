@@ -30,6 +30,7 @@ Input:   output/cohort.csv
          output/atc_features.parquet
          output/ts_features.parquet
          output/labels.parquet
+         output/cxr_structured_features.csv  (optional, only if USE_CXR_FEATURES = True)
 
 Output:  output/X_train.parquet    output/y_train.parquet
          output/X_val.parquet      output/y_val.parquet
@@ -42,7 +43,7 @@ import numpy as np
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))  # pipeline/ -> config.py / multimodal_utils.py
-from config import OUTPUT_DIR
+from config import OUTPUT_DIR, USE_CXR_FEATURES, CXR_FEATURE_PATH, CXR_FEATURES
 
 # ── Imputation strategy ───────────────────────────────────────────────────────
 # "median" | "mean" | "rf"
@@ -217,6 +218,21 @@ print(f"  demographics : {len(static.columns)-1} features")
 print(f"  ICD          : {len(icd.columns)-1} features")
 print(f"  ATC          : {len(atc.columns)-1} features")
 print(f"  time-series  : {len(ts_flat.columns)-1 if USE_AGGREGATED_VITALS else 0} features {'(disabled)' if not USE_AGGREGATED_VITALS else ''}")
+
+if USE_CXR_FEATURES:
+    # Left-join structured CXR flags (pneumonia, severity_score, ...) by stay_id;
+    # has_cxr_report is derived from row presence in the CXR file, not read from
+    # it, so it stays 1 even if every individual flag for that report is 0.
+    # Mirrors prd_net_v2/fd01_feature-matrix.py::_attach_cxr_features.
+    content_cols = [c for c in CXR_FEATURES if c != "has_cxr_report"]
+    cxr = pd.read_csv(CXR_FEATURE_PATH).set_index("stay_id")[content_cols]
+    aligned = cxr.reindex(features_all["stay_id"])
+    new_cols = {c: aligned[c].fillna(0.0).astype(np.float32).values for c in content_cols}
+    new_cols["has_cxr_report"] = aligned.notna().any(axis=1).astype(np.float32).values
+    cxr_block = pd.DataFrame(new_cols, index=features_all.index)[CXR_FEATURES]
+    features_all = pd.concat([features_all, cxr_block], axis=1)
+    print(f"  CXR features : {len(CXR_FEATURES)} ({int(cxr_block['has_cxr_report'].sum()):,} stays with a usable CXR report)")
+
 all_feature_cols = [c for c in features_all.columns if c != "stay_id"]
 print(f"  total        : {len(all_feature_cols)} features")
 

@@ -11,19 +11,14 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
 
-from config import OBS_WINDOW
+from config import OBS_WINDOW, CXR_FEATURES
 
-# ── CXR feature names produced by cxr_03_extract_features.py ──────────────
-CXR_STRUCT_FEATURES = [
-    "pneumonia", "pleural_effusion", "pneumothorax", "edema", "atelectasis",
-    "opacity", "cardiomegaly",
-    "severity_bilateral", "severity_diffuse", "severity_multifocal",
-    "severity_extensive", "severity_severe", "severity_marked",
-    "severity_score",
-    "worsening", "improved", "stable",
-    "ventilator", "central_line", "chest_tube",
-    "report_length", "sentence_count", "abnormality_count",
-]
+# ── CXR feature names produced by preprocessing/01d_extract_radiology_features.py,
+# merged into the static matrix by preprocessing/04_preprocessing.py when
+# config.USE_CXR_FEATURES is True. Derived from config.CXR_FEATURES (minus the
+# coverage flag, which get_cxr_feature_groups tracks separately) so this list
+# can't drift from what's actually attached to the feature matrix.
+CXR_STRUCT_FEATURES = [c for c in CXR_FEATURES if c != "has_cxr_report"]
 
 
 def get_cxr_feature_groups(static_features: list[str]) -> dict:
@@ -35,7 +30,7 @@ def get_cxr_feature_groups(static_features: list[str]) -> dict:
     """
     bert_pca = [c for c in static_features if c.startswith("bert_pca_")]
     cxr_struct = [c for c in CXR_STRUCT_FEATURES if c in static_features]
-    has_cxr = ["has_cxr"] if "has_cxr" in static_features else []
+    has_cxr = ["has_cxr_report"] if "has_cxr_report" in static_features else []
     cxr_all = cxr_struct + bert_pca + has_cxr
     baseline = [c for c in static_features if c not in cxr_all]
     return {

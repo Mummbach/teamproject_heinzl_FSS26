@@ -342,7 +342,13 @@ ts_wide.columns = [f"{feat}_{stat}" for stat, feat in ts_wide.columns]
 ts_wide = ts_wide.reset_index()
 
 # Add binary missingness flags (1 = no measurements at all in 48h)
+# urine_output is skipped here: it comes from outputevents, not this
+# chartevents pivot, so it never has a "*_count" column — its real
+# missingness flag ("urine_missing") is built separately below from the
+# outputevents totals.
 for feat in TS_FEATURES:
+    if feat == "urine_output":
+        continue
     count_col   = f"{feat}_count"
     missing_col = f"{feat}_missing"
     if count_col in ts_wide.columns:

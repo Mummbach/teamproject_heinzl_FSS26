@@ -109,6 +109,18 @@ LR         = 1e-3
 EPOCHS     = 50
 PATIENCE   = 15
 
+# L2 penalty (Adam weight_decay) on the linear diff model. 0.0 = current
+# default (unregularized). Several diff features are highly collinear (e.g.
+# heart_rate_mean vs. heart_rate_median, r~0.99 in train) — with no penalty,
+# the model is free to split weight between them arbitrarily (large offsetting
+# +/- weights that cancel in the prediction but distort per-feature
+# attribution on the explanation dashboard). A small positive value nudges
+# the model toward smaller, more evenly-shared weights among correlated
+# features without materially changing predictive accuracy. Experimental —
+# compare against the wd=0 checkpoint (see checkpoint_path/metrics_path
+# weight_decay tagging below) before changing this default.
+WEIGHT_DECAY = 0.0
+
 # ── Hard-filter one-hot column groups (centralized — single source of truth) ──
 ICU_COLS = [
     "icu_micu", "icu_sicu", "icu_ccu", "icu_cvicu",
@@ -181,6 +193,14 @@ def _tag(window: int | None) -> str:
     return f"{window or WINDOW_HOURS}h"
 
 
+def _wd_suffix(weight_decay: float | None) -> str:
+    """Empty at the wd=0.0 default (keeps existing filenames unchanged);
+    "_wdX" otherwise, so a regularization experiment can't clobber the
+    current checkpoint/metrics."""
+    wd = WEIGHT_DECAY if weight_decay is None else weight_decay
+    return "" if wd == 0.0 else f"_wd{wd:g}"
+
+
 def feature_matrix_path(split: str, scaled: bool, window: int | None = None) -> Path:
     kind = "scaled" if scaled else "raw"
     return OUTPUT_DIR / f"fd_feature_matrix_{split}_{kind}_{_tag(window)}.parquet"
@@ -196,16 +216,16 @@ def prototypes_path(split: str, window: int | None = None) -> Path:
     return OUTPUT_DIR / f"fd_prototypes_{split}_{_tag(window)}.pkl"
 
 
-def checkpoint_path(window: int | None = None) -> Path:
-    return CKPT_DIR / f"fd_diff_v1_{_tag(window)}.pt"
+def checkpoint_path(window: int | None = None, weight_decay: float | None = None) -> Path:
+    return CKPT_DIR / f"fd_diff_v1_{_tag(window)}{_wd_suffix(weight_decay)}.pt"
 
 
-def threshold_path(window: int | None = None) -> Path:
-    return CKPT_DIR / f"fd_diff_v1_{_tag(window)}_threshold.pt"
+def threshold_path(window: int | None = None, weight_decay: float | None = None) -> Path:
+    return CKPT_DIR / f"fd_diff_v1_{_tag(window)}{_wd_suffix(weight_decay)}_threshold.pt"
 
 
-def metrics_path(window: int | None = None) -> Path:
-    return OUTPUT_DIR / f"fd_metrics_{_tag(window)}.json"
+def metrics_path(window: int | None = None, weight_decay: float | None = None) -> Path:
+    return OUTPUT_DIR / f"fd_metrics_{_tag(window)}{_wd_suffix(weight_decay)}.json"
 
 
 def export_path(window: int | None = None) -> Path:

@@ -86,7 +86,7 @@ if __name__ == "__main__":
 
     torch.manual_seed(0)
     model = build_model(in_dim)
-    opt = torch.optim.Adam(model.parameters(), lr=C.LR)
+    opt = torch.optim.Adam(model.parameters(), lr=C.LR, weight_decay=C.WEIGHT_DECAY)
     loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([C.POS_WEIGHT]))
 
     ds = torch.utils.data.TensorDataset(Xtr_t, ytr_t)
@@ -160,6 +160,7 @@ if __name__ == "__main__":
         json.dump({
             "window_hours": W, "model": C.MODEL, "diff_input": C.DIFF_INPUT,
             "retrieval_space": C.RETRIEVAL_SPACE, "weighting": C.USE_PROTOTYPE_WEIGHTING,
+            "weight_decay": C.WEIGHT_DECAY,
             "threshold": thr, "val_f1_best": best_f1,
             "test_torch": test_metrics, "test_logreg": lr_metrics,
         }, f, indent=2)

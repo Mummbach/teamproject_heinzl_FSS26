@@ -9,8 +9,11 @@ clinically comparable (similar age) but split by outcome:
 These peer pairs are the training signal for the peer-retrieval network (Step 3).
 
 Column names (derived from preprocessing pipeline — do not guess):
-  ICD chapter : 18 binary columns icd_<category>  (preprocessing/02_features.py)
-                categories defined in config.ICD_CATEGORIES
+  Primary diagnosis : `primary_diag` column in labels.parquet / y_train.parquet
+                (seq_num==1 ICD chapter, preprocessing/02_features.py). Not the
+                icd_<category> columns in X_train — those are multi-label
+                (patients average ~8 chapters), so they cannot identify a
+                single "primary" diagnosis.
   ICU type    : 7 binary columns icu_<unit>        (preprocessing/04_preprocessing.py)
                 icu_micu, icu_sicu, icu_ccu, icu_cvicu,
                 icu_micu_sicu, icu_tsicu, icu_neuro_sicu
@@ -25,16 +28,12 @@ import pandas as pd
 from tqdm import tqdm
 
 sys.path.append(str(Path(__file__).parent.parent))
-from config import ICD_CATEGORIES
 
 # Exact column names as created by preprocessing/04_preprocessing.py
 ICU_COLS = [
     "icu_micu", "icu_sicu", "icu_ccu", "icu_cvicu",
     "icu_micu_sicu", "icu_tsicu", "icu_neuro_sicu",
 ]
-
-# ICD chapter columns derived from config.ICD_CATEGORIES (preprocessing/02_features.py)
-ICD_COLS = [f"icd_{cat}" for cat in ICD_CATEGORIES]
 
 # Admission type columns — emergency vs elective patients have different LOS trajectories
 ADM_COLS = ["adm_emergency", "adm_urgent", "adm_elective", "adm_observation"]
@@ -48,7 +47,7 @@ ADM_COLS = ["adm_emergency", "adm_urgent", "adm_elective", "adm_observation"]
 def _hard_filter(target_idx: int, train_df: pd.DataFrame) -> np.ndarray:
     """
     Return row indices of candidates that share the target patient's primary
-    ICD diagnosis category AND ICU type. The target itself is excluded.
+    ICD diagnosis AND ICU type AND admission type. The target itself is excluded.
 
     Hard filter means binary match — either both columns agree or the candidate
     is dropped entirely. This ensures peers are clinically comparable before
@@ -56,23 +55,26 @@ def _hard_filter(target_idx: int, train_df: pd.DataFrame) -> np.ndarray:
 
     Args:
         target_idx : row index of the target patient in train_df.
-        train_df   : DataFrame containing ICD_COLS and ICU_COLS columns.
+        train_df   : DataFrame containing a `primary_diag` column (merged in
+                     from y_train.parquet) plus ICU_COLS and ADM_COLS.
 
     Returns:
         np.ndarray of row indices passing the hard filter (target excluded).
     """
     target = train_df.iloc[target_idx]
 
-    # Find which ICD chapter, ICU type, and admission type the target belongs to
-    # Each patient has exactly one 1 in each of these column groups
-    target_icd = next((c for c in ICD_COLS if target[c] == 1), None)
+    # ICU type and admission type are true one-hot column groups (exactly one 1
+    # per patient); primary diagnosis is a single categorical column, not a
+    # one-hot group — the icd_* columns in train_df are multi-label and cannot
+    # be used to recover it.
+    target_diag = target["primary_diag"]
     target_icu = next((c for c in ICU_COLS if target[c] == 1), None)
     target_adm = next((c for c in ADM_COLS if target[c] == 1), None)
 
     mask = pd.Series(True, index=train_df.index)
 
-    if target_icd is not None:
-        mask &= train_df[target_icd] == 1
+    if target_diag != "unknown":
+        mask &= train_df["primary_diag"] == target_diag
 
     if target_icu is not None:
         mask &= train_df[target_icu] == 1
@@ -207,6 +209,9 @@ if __name__ == "__main__": # only run if directly started from this file
     # columns which are binary (0/1); scaling would distort those values.
     train_df = pd.read_parquet(OUTPUT_DIR / "X_train.parquet")
     y_train  = pd.read_parquet(OUTPUT_DIR / "y_train.parquet")
+    # Hard filter needs the true primary diagnosis (seq_num==1), which lives in
+    # y_train.parquet, not in the multi-label icd_* columns of X_train.
+    train_df = train_df.merge(y_train[["stay_id", "primary_diag"]], on="stay_id", how="left")
 
     stay_ids       = train_df["stay_id"].values
     train_features = np.stack([emb_dict[sid] for sid in stay_ids])

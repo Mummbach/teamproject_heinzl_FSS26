@@ -128,31 +128,40 @@ if __name__ == "__main__":
     # ── General patient info + peer group composition/outcome (dashboard) ─────
     # cohort.csv carries the raw demographic/admission text (ground truth) plus
     # continuous LOS, absent from both the 77-dim clinical feature matrix and
-    # the binary los_gt7 label. The one-hot icd_*/icu_*/adm_* columns in
-    # X_test.parquet are a separate, coarser thing: exactly what fd02's hard
-    # filter matched peers on (only 7 recognized ICU buckets, etc.) — used
-    # below only to describe the peer-group filter criteria truthfully, not
-    # for general display (where the raw text is strictly more informative).
+    # the binary los_gt7 label. The one-hot icu_*/adm_* columns in X_test.parquet
+    # and the primary_diag column from y_test.parquet are a separate, coarser
+    # thing: exactly what fd02's hard filter matched peers on (only 7
+    # recognized ICU buckets, etc.) — used below only to describe the
+    # peer-group filter criteria truthfully, not for general display (where
+    # the raw text is strictly more informative).
     cohort = (pd.read_csv(C.OUTPUT_DIR / "cohort.csv",
                           usecols=["stay_id", "gender", "first_careunit", "admission_type", "los"])
               .set_index("stay_id"))
     cohort_los = cohort["los"].to_dict()
     demo = (pd.read_parquet(C.OUTPUT_DIR / "X_test.parquet",
-                            columns=["stay_id"] + C.ICD_COLS + C.ICU_COLS + C.ADM_COLS)
+                            columns=["stay_id"] + C.ICU_COLS + C.ADM_COLS)
             .set_index("stay_id"))
+    # primary_diag (seq_num==1, from y_test/labels.parquet) is what fd02's hard
+    # filter actually matches on — NOT the icd_* columns above, which are
+    # multi-label (patients average ~8 chapters) and can't identify a single
+    # "primary" diagnosis.
+    pdiag = (pd.read_parquet(C.OUTPUT_DIR / "y_test.parquet",
+                             columns=["stay_id", "primary_diag"])
+             .set_index("stay_id")["primary_diag"])
 
     def _active_label(row, cols, labels):
         return next((labels[c] for c in cols if row[c] > 0), None)
 
     def filter_criteria(sid):
-        """One-hot-derived category fd02's hard filter actually matched this
-        patient on — can be None when the patient falls outside every
-        recognized bucket (the filter then skips that criterion entirely)."""
+        """Category fd02's hard filter actually matched this patient on — can
+        be None when the patient falls outside every recognized bucket (the
+        filter then skips that criterion entirely)."""
         row = demo.loc[sid]
+        diag = pdiag.loc[sid]
         return {
             "icu_unit": _active_label(row, C.ICU_COLS, C.ICU_LABELS),
             "admission_type": _active_label(row, C.ADM_COLS, C.ADM_LABELS),
-            "diagnosis_category": _active_label(row, C.ICD_COLS, C.ICD_LABELS),
+            "diagnosis_category": C.ICD_LABELS.get(f"icd_{diag}") if diag != "unknown" else None,
         }
 
     def patient_info(sid, fc):

@@ -37,13 +37,12 @@ from tqdm import tqdm
 from sklearn.metrics import f1_score
 
 sys.path.append(str(Path(__file__).parent.parent))
-from config import OUTPUT_DIR, ICD_CATEGORIES
+from config import OUTPUT_DIR
 from prd_net.config_prd import EMBEDDING_CACHE_PATH, PEER_CACHE_PATH, BATCH_SIZE, HIDDEN_DIM, LR, EPOCHS, PATIENCE, K_PEERS, AGE_TOLERANCE
 
 # Clinical filter column names — must match 02_peer-groups.py exactly
 ICU_COLS = ["icu_micu", "icu_sicu", "icu_ccu", "icu_cvicu",
             "icu_micu_sicu", "icu_tsicu", "icu_neuro_sicu"]
-ICD_COLS = [f"icd_{cat}" for cat in ICD_CATEGORIES]
 ADM_COLS = ["adm_emergency", "adm_urgent", "adm_elective", "adm_observation"]
 _spec = _ilu.spec_from_file_location("prd_model", Path(__file__).parent / "03_prd-model.py")
 _mod  = _ilu.module_from_spec(_spec)
@@ -259,10 +258,10 @@ def build_filtered_prototypes(
     age_tol: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
-    For each query patient (val or test), apply the same ICD+ICU+age filter
-    used during training peer-group construction (02_peer-groups.py), then
-    select the K nearest training patients per class and return their mean
-    embedding as the prototype.
+    For each query patient (val or test), apply the same primary-diagnosis+
+    ICU+age filter used during training peer-group construction
+    (02_peer-groups.py), then select the K nearest training patients per class
+    and return their mean embedding as the prototype.
 
     Previously, val/test used raw K-nearest without any clinical filter, while
     training used clinically filtered peers. This mismatch meant the model saw
@@ -270,12 +269,14 @@ def build_filtered_prototypes(
     Applying the same filter end-to-end removes that inconsistency.
 
     Falls back to unfiltered K-nearest if the filtered pool for a class is empty
-    (rare patients with no ICD/ICU match in the training set).
+    (rare patients with no diagnosis/ICU match in the training set).
 
     Args:
-        query_df          : DataFrame for query patients (X_val or X_test, unscaled)
+        query_df          : DataFrame for query patients (X_val or X_test, unscaled),
+                             with a `primary_diag` column merged in from y_{split}
         query_stay_ids    : ordered stay_id array for query patients
-        train_df          : X_train (unscaled) — contains ICD, ICU, age columns
+        train_df          : X_train (unscaled) — contains ICU, age columns, and a
+                             `primary_diag` column merged in from y_train
         all_train_stay_ids: stay_id array aligned with train_df rows
         all_train_labels  : binary label array aligned with train_df rows
         embedding_cache   : {stay_id -> np.array (128,)}
@@ -288,7 +289,7 @@ def build_filtered_prototypes(
     """
     all_train_emb = np.stack([embedding_cache[int(sid)] for sid in all_train_stay_ids])
 
-    train_icd = train_df[ICD_COLS].values   # (N_train, n_icd)
+    train_pdiag = train_df["primary_diag"].values   # (N_train,)
     train_icu = train_df[ICU_COLS].values   # (N_train, n_icu)
     train_adm = train_df[ADM_COLS].values   # (N_train, n_adm)
     train_age = train_df["age"].values       # (N_train,)
@@ -298,7 +299,7 @@ def build_filtered_prototypes(
 
     # Build stay_id → row-index lookup for the query DataFrame
     sid_to_row = {int(sid): i for i, sid in enumerate(query_df["stay_id"].values)}
-    query_icd  = query_df[ICD_COLS].values
+    query_pdiag = query_df["primary_diag"].values
     query_icu  = query_df[ICU_COLS].values
     query_adm  = query_df[ADM_COLS].values
     query_age  = query_df["age"].values
@@ -322,14 +323,14 @@ def build_filtered_prototypes(
         q_row  = sid_to_row[int(sid)]
         target = embedding_cache[int(sid)]
 
-        # Hard filter: same primary ICD chapter + ICU type + admission type (binary match)
-        q_icd = int(np.argmax(query_icd[q_row])) if query_icd[q_row].max() == 1 else None
+        # Hard filter: same primary diagnosis + ICU type + admission type (binary match)
+        q_diag = query_pdiag[q_row]
         q_icu = int(np.argmax(query_icu[q_row])) if query_icu[q_row].max() == 1 else None
         q_adm = int(np.argmax(query_adm[q_row])) if query_adm[q_row].max() == 1 else None
 
         mask = np.ones(len(train_df), dtype=bool)
-        if q_icd is not None:
-            mask &= train_icd[:, q_icd] == 1
+        if q_diag != "unknown":
+            mask &= train_pdiag == q_diag
         if q_icu is not None:
             mask &= train_icu[:, q_icu] == 1
         if q_adm is not None:
@@ -363,7 +364,7 @@ def val_epoch(model, val_emb: torch.Tensor, val_labels: torch.Tensor,
               loss_fn) -> tuple[float, float]:
     """
     Evaluate on the full validation set using pre-computed clinically filtered
-    prototypes (built once before training with ICD+ICU+age filter).
+    prototypes (built once before training with primary-diagnosis+ICU+age filter).
 
     Prototypes are re-encoded with current model weights each call so they
     reflect the evolving representation space.
@@ -425,6 +426,10 @@ def find_best_threshold(logits: np.ndarray, labels: np.ndarray) -> tuple[float, 
 # ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    # Fixed seed: the GRU DataLoader shuffles each epoch and this track has no
+    # other seeding, making it the least reproducible part of the pipeline
+    # otherwise (mirrors torch.manual_seed(0) in prd_net_v2/fd04_diff-train.py).
+    torch.manual_seed(0)
 
     # ── Load caches ───────────────────────────────────────────────────────────
     print("Loading caches...")
@@ -436,6 +441,9 @@ if __name__ == "__main__":
     print("Loading training data...")
     X_train = pd.read_parquet(OUTPUT_DIR / "X_train.parquet")
     y_train = pd.read_parquet(OUTPUT_DIR / "y_train.parquet")
+    # Hard filter needs the true primary diagnosis (seq_num==1), which lives in
+    # y_train.parquet, not in the multi-label icd_* columns of X_train.
+    X_train = X_train.merge(y_train[["stay_id", "primary_diag"]], on="stay_id", how="left")
 
     # all_train_stay_ids: full row-index → stay_id lookup used by compute_prototypes
     # Must stay unfiltered — peer row indices reference positions in this array
@@ -455,6 +463,7 @@ if __name__ == "__main__":
     print("Loading validation data...")
     X_val = pd.read_parquet(OUTPUT_DIR / "X_val.parquet")
     y_val = pd.read_parquet(OUTPUT_DIR / "y_val.parquet")
+    X_val = X_val.merge(y_val[["stay_id", "primary_diag"]], on="stay_id", how="left")
 
     val_stay_ids = X_val["stay_id"].values
     val_labels   = y_val.set_index("stay_id").loc[val_stay_ids, "los_gt7"].values
@@ -470,7 +479,7 @@ if __name__ == "__main__":
     val_labels_t = torch.tensor(val_labels, dtype=torch.float32)
 
     # ── Clinically filtered val prototypes — computed once, re-encoded each epoch
-    # Applies the same ICD+ICU+age filter as training peer groups (02_peer-groups.py)
+    # Applies the same primary-diagnosis+ICU+age filter as training peer groups (02_peer-groups.py)
     # so the model sees a consistent prototype structure at val time.
     print("Building clinically filtered val prototypes...")
     val_pos_proto_raw, val_neg_proto_raw = build_filtered_prototypes(

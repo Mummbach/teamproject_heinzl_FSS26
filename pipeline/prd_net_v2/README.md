@@ -47,7 +47,7 @@ Independent of the model change above, this track can find peers two ways:
 
 | | **`feature`** (default) | **`embedding`** |
 |---|---|---|
-| Peers found by | plain L2 distance in this track's own scaled clinical feature vector (same hard filter: ICD chapter + ICU type + admission type + age tolerance) | L2 distance in v1's learned GRU embedding — reuses `prd_net_peers.pkl` / `prd_net_embeddings.pkl` as-is |
+| Peers found by | plain L2 distance in this track's own scaled clinical feature vector (same hard filter: primary ICD diagnosis + ICU type + admission type + age tolerance) | L2 distance in v1's learned GRU embedding — reuses `prd_net_peers.pkl` / `prd_net_embeddings.pkl` as-is |
 | Depends on v1 running first? | **No** — fully standalone | Yes — v1's `01`/`02` must have produced those caches |
 | Why it exists | the standalone, self-contained mode | isolates *one* variable at a time in the v1-vs-v2 comparison: same peers as v1, only the prototype/model change |
 
@@ -58,6 +58,13 @@ AUPRC 0.556 vs 0.532; sklearn logreg: AUROC 0.808 vs 0.789, AUPRC 0.570 vs
 under the cached-peer path. So `embedding` mode isn't kept because it performs
 better — only as a controlled comparison point back to v1's exact peer set.
 Switch via `RETRIEVAL_SPACE` in `config_fd.py`.
+
+> **Stale as of the 2026-08-25 ICD-filter fix.** The comparison above predates
+> the fix described in the top-level README (*"ICD hard-filter matched the
+> wrong column"*) — both `feature` and `embedding` mode shared the same buggy
+> hard filter at the time, so the relative comparison may still hold, but
+> neither number has been reproduced against the corrected filter. Re-run with
+> `RETRIEVAL_SPACE = "embedding"` before citing this ablation again.
 
 **Why `embedding` came first.** This track's first implementation shipped with
 `RETRIEVAL_SPACE="embedding"` as the *only* mode — deliberately, so the very
@@ -143,16 +150,19 @@ comments at each choice point.
 
 Headline metrics are AUROC and **AUPRC** (23.6% positive imbalance). 48h is the
 primary analysis; 24h is the robustness / comparability check. Both rows are
-current: rebuilt 2026-08-13 end-to-end (`fd01`→`fd02`→`fd04`→`fd06`) under the
+current: rebuilt 2026-08-25 end-to-end (`fd02`→`fd04`→`fd06`) under the
 `feature`-retrieval default (`RETRIEVAL_SPACE = "feature"`, see "Retrieval
-space" above) on top of the 2026-07-26 full rebuild from raw MIMIC
-(probe-disconnect vitals fix + absolute hard-filter features + CXR flags) —
-see "Full reproduction" below. Source: `fd_metrics_48h.json` / `fd_metrics_24h.json`.
+space" above) after fixing the ICD hard-filter bug (it was matching the first
+ICD chapter in column order, not the patient's actual primary diagnosis — see
+the top-level README's *"ICD hard-filter matched the wrong column"* note),
+on top of the 2026-07-26 full rebuild from raw MIMIC (probe-disconnect vitals
+fix + absolute hard-filter features + CXR flags) — see "Full reproduction"
+below. Source: `fd_metrics_48h.json` / `fd_metrics_24h.json`.
 
 | window | accuracy | precision | recall | F1 | AUROC | **AUPRC** |
 |--------|---------:|----------:|-------:|---:|------:|----------:|
-| **48h** (primary) | 0.795 | 0.556 | 0.646 | 0.598 | **0.836** | **0.617** |
-| 24h (robustness)  | 0.728 | 0.453 | 0.726 | 0.558 | 0.801 | 0.556 |
+| **48h** (primary) | 0.793 | 0.552 | 0.659 | 0.601 | **0.834** | **0.607** |
+| 24h (robustness)  | 0.737 | 0.463 | 0.715 | 0.562 | 0.800 | 0.543 |
 
 Reference — Wu et al. GBDT: AUROC 0.747 / AUPRC 0.536. The 48h linear difference
 model exceeds the GBDT on **both** AUROC and AUPRC while staying fully
@@ -277,25 +287,32 @@ space — only needed if `RETRIEVAL_SPACE = "embedding"` in `config_fd.py`.
 
 ### Model comparison (`fd08`)
 
-`fd08_model-compare.py` evaluates every model on the same fixed test set and
-writes `exports/fd_model_comparison.json` (metrics) + `fd_model_predictions.parquet`
-(per-patient probabilities for the ROC/PR overlays and the per-patient cross-model
-panel). Both dashboards show a "Model comparison" view (metrics table, grouped
-bars, ROC + PR overlays). 24h exists only for the new feature-diff track; GRU,
-old PRD and (their) baselines are 48h-only. Test-set results:
+`fd08_model-compare.py` is documented as evaluating every model on the same
+fixed test set and writing `exports/fd_model_comparison.json` (metrics) +
+`fd_model_predictions.parquet` (per-patient probabilities for the ROC/PR
+overlays and the per-patient cross-model panel), with both dashboards showing
+a "Model comparison" view (metrics table, grouped bars, ROC + PR overlays).
+**As of 2026-08-25 this script and its output files are not present in the
+repo** — the numbers below are compiled by hand from each track's own metrics
+output, not from a `fd08` run. 24h exists only for the new feature-diff track;
+GRU, old PRD and (their) baselines are 48h-only. Test-set results:
 
 | model | window | F1 | AUROC | AUPRC |
 |-------|:------:|---:|------:|------:|
 | GRU (baseline) | 48h | 0.611 | 0.848 | 0.644 |
-| Old PRD (latent delta) | 48h | 0.621 | 0.835 | 0.607 |
-| New PRD (feature-diff) | 48h | 0.598 | 0.836 | 0.617 |
-| New PRD (feature-diff) | 24h | 0.558 | 0.801 | 0.556 |
+| Old PRD (latent delta) | 48h | 0.617 | 0.833 | 0.598 |
+| New PRD (feature-diff) | 48h | 0.601 | 0.834 | 0.607 |
+| New PRD (feature-diff) | 24h | 0.562 | 0.800 | 0.543 |
 
-(GRU/old PRD: full-rebuild numbers, 2026-07-26, from `baseline/07_model_gru.py` /
-`prd_net/05_prd-inference.py` — unaffected by this track's `RETRIEVAL_SPACE`
-switch, so still current. New PRD: refreshed 2026-08-13 under the `feature`
-retrieval default, from `fd_metrics_{w}h.json` — the same test set and
-thresholds `fd08` uses.) The three models sit within ~0.01–0.02 AUROC of each
+(GRU: full-rebuild numbers, 2026-07-26, from `baseline/07_model_gru.py` —
+unaffected by the ICD-filter fix below, so still current. Old PRD and New PRD:
+refreshed 2026-08-25, from `prd_net/05_prd-inference.py` and
+`fd_metrics_{w}h.json` respectively, after fixing the ICD hard-filter bug (see
+the top-level README's *"ICD hard-filter matched the wrong column"* note) —
+contrary to the previous note here, Old PRD's numbers were **not** independent
+of that bug: `prd_net/02_peer-groups.py`'s hard filter had the same argmax/
+first-`1` issue and has been rebuilt too.) The three models sit within
+~0.01–0.02 AUROC of each
 other, so the feature-diff track buys an exactly attributable, contrastive,
 per-feature explanation at essentially no accuracy cost.
 

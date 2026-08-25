@@ -10,10 +10,11 @@ Peer membership (D1):
     the existing track), map the cached row indices into the scaled feature
     matrix, and average those FEATURE vectors. The ~312 patients with an empty
     peer side are skipped, exactly as in prd_net/04_prd-train.py.
-  - Val/test patients: re-apply the same hard filter (ICD chapter AND ICU type
-    AND admission type) + soft age filter against the training set, rank by
-    distance in RETRIEVAL_SPACE, take the K nearest per class, average their
-    FEATURE vectors. Falls back to the unfiltered class pool if a side is empty.
+  - Val/test patients: re-apply the same hard filter (primary ICD diagnosis
+    chapter AND ICU type AND admission type) + soft age filter against the
+    training set, rank by distance in RETRIEVAL_SPACE, take the K nearest per
+    class, average their FEATURE vectors. Falls back to the unfiltered class
+    pool if a side is empty.
 
 Prototypes are built in SCALED (z-scored) feature space so the later deltas are
 in comparable SD units. Raw-unit values are recovered downstream via the scaler.
@@ -149,18 +150,23 @@ def build_prototypes_filtered(
 ) -> dict:
     """Filtered K-NN prototypes for a query split (mirrors build_filtered_prototypes).
 
-    Hard filter (ICD+ICU+ADM) + age filter against the train set, then rank the
-    per-class candidates by distance in `space` ("embedding" | "feature") and
-    average the K nearest FEATURE vectors. Falls back to the unfiltered class
+    Hard filter (primary_diag+ICU+ADM) + age filter against the train set, then
+    rank the per-class candidates by distance in `space` ("embedding" | "feature")
+    and average the K nearest FEATURE vectors. Falls back to the unfiltered class
     pool when a side is empty.
+
+    Note: matching is on `primary_diag` (the seq_num==1 diagnosis from
+    labels.parquet), not on the icd_* columns in X_train_df/query_df — those are
+    multi-label (patients average ~8 chapters), so an argmax/first-1 pick over
+    them does not recover the patient's actual primary diagnosis.
     """
     F = M_train.shape[1]
-    train_icd = X_train_df[C.ICD_COLS].values
+    train_pdiag = X_train_df["primary_diag"].values
     train_icu = X_train_df[C.ICU_COLS].values
     train_adm = X_train_df[C.ADM_COLS].values
     train_age = X_train_df["age"].values
 
-    q_icd = query_df[C.ICD_COLS].values
+    q_pdiag = query_df["primary_diag"].values
     q_icu = query_df[C.ICU_COLS].values
     q_adm = query_df[C.ADM_COLS].values
     q_age = query_df["age"].values
@@ -190,7 +196,7 @@ def build_prototypes_filtered(
         target_repr = emb_cache[int(sid)] if space == "embedding" else M_query[qr]
 
         mask = np.ones(len(X_train_df), dtype=bool)
-        if q_icd[qr].max() == 1: mask &= train_icd[:, int(np.argmax(q_icd[qr]))] == 1
+        if q_pdiag[qr] != "unknown": mask &= train_pdiag == q_pdiag[qr]
         if q_icu[qr].max() == 1: mask &= train_icu[:, int(np.argmax(q_icu[qr]))] == 1
         if q_adm[qr].max() == 1: mask &= train_adm[:, int(np.argmax(q_adm[qr]))] == 1
         mask &= np.abs(train_age - q_age[qr]) <= C.AGE_TOLERANCE
@@ -264,6 +270,10 @@ if __name__ == "__main__":
     M = {s: load_scaled(s) for s in ("train", "val", "test")}
     Xdf = {s: pd.read_parquet(OUTPUT_DIR / f"X_{s}.parquet") for s in ("train", "val", "test")}
     ydf = {s: pd.read_parquet(OUTPUT_DIR / f"y_{s}.parquet") for s in ("train", "val", "test")}
+    # Hard filter needs the true primary diagnosis (seq_num==1), which lives in
+    # labels.parquet / y_{split}.parquet, not in the multi-label icd_* columns.
+    for s in ("train", "val", "test"):
+        Xdf[s] = Xdf[s].merge(ydf[s][["stay_id", "primary_diag"]], on="stay_id", how="left")
 
     # Alignment assertion: scaled matrix row order must equal X_{split} order so
     # the peer-cache row indices resolve to the correct patients.

@@ -210,14 +210,28 @@ reproduction from raw MIMIC"*). Dependencies are pinned in
 (no GPU required), ~15 min end-to-end.
 
 Headline test-set results (length-of-stay > 7 days, 23.6 % positive; full rebuild
-2026-07-26):
+2026-08-25, after fixing the ICD hard-filter — see *"ICD hard-filter matched the
+wrong column"* below):
 
 | model | F1 | AUROC | AUPRC |
 |---|--:|--:|--:|
 | GRU (baseline, 48h) | 0.611 | 0.848 | 0.644 |
-| PRD-Net latent (48h) | 0.621 | 0.835 | 0.607 |
-| PRD-Net feature-diff (48h) | 0.601 | 0.826 | 0.600 |
-| PRD-Net feature-diff (24h) | 0.552 | 0.792 | 0.533 |
+| PRD-Net latent (48h) | 0.617 | 0.833 | 0.598 |
+| PRD-Net feature-diff (48h) | 0.601 | 0.834 | 0.607 |
+| PRD-Net feature-diff (24h) | 0.562 | 0.800 | 0.543 |
+
+> **ICD hard-filter matched the wrong column (fixed 2026-08-25):** the peer-group
+> hard filter (`prd_net/02_peer-groups.py`, `prd_net/04_prd-train.py`,
+> `prd_net/05_prd-inference.py`, `prd_net_v2/fd02_feature-prototypes.py`) picked
+> a patient's "primary ICD chapter" via `argmax`/first-`1` over the `icd_*`
+> columns in `X_*.parquet`. Those columns are multi-label (patients carry ~8.3
+> chapters on average), so this actually picked the first chapter in
+> `config.ICD_CATEGORIES` order — not the true primary diagnosis. Fixed to
+> match on `primary_diag` (`seq_num==1`, from `labels.parquet`/`y_*.parquet`)
+> instead. `prd_net/04_prd-train.py` also had no random seed (GRU DataLoader
+> shuffle was nondeterministic); it now calls `torch.manual_seed(0)`, matching
+> `prd_net_v2/fd04_diff-train.py`. All peer/prototype caches and models were
+> rebuilt after the fix; headline numbers above reflect the corrected filter.
 
 ---
 

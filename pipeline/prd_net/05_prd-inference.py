@@ -40,12 +40,11 @@ from sklearn.metrics import (
 )
 
 sys.path.append(str(Path(__file__).parent.parent))
-from config import OUTPUT_DIR, ICD_CATEGORIES
+from config import OUTPUT_DIR
 from prd_net.config_prd import EMBEDDING_CACHE_PATH, HIDDEN_DIM, K_PEERS, AGE_TOLERANCE
 
 ICU_COLS = ["icu_micu", "icu_sicu", "icu_ccu", "icu_cvicu",
             "icu_micu_sicu", "icu_tsicu", "icu_neuro_sicu"]
-ICD_COLS = [f"icd_{cat}" for cat in ICD_CATEGORIES]
 ADM_COLS = ["adm_emergency", "adm_urgent", "adm_elective", "adm_observation"]
 
 # Load PRDNet via importlib (filename starts with digit and contains hyphen)
@@ -84,6 +83,9 @@ with open(EMBEDDING_CACHE_PATH, "rb") as f:
 print("Loading training data...")
 X_train = pd.read_parquet(OUTPUT_DIR / "X_train.parquet")
 y_train = pd.read_parquet(OUTPUT_DIR / "y_train.parquet")
+# Hard filter needs the true primary diagnosis (seq_num==1), which lives in
+# y_train.parquet, not in the multi-label icd_* columns of X_train.
+X_train = X_train.merge(y_train[["stay_id", "primary_diag"]], on="stay_id", how="left")
 
 train_ids    = X_train["stay_id"].values
 train_labels = y_train.set_index("stay_id").loc[train_ids, "los_gt7"].values
@@ -96,6 +98,7 @@ print(f"  Negative training patients : {(train_labels == 0).sum():,}")
 print("Loading test data...")
 X_test = pd.read_parquet(OUTPUT_DIR / "X_test.parquet")
 y_test = pd.read_parquet(OUTPUT_DIR / "y_test.parquet")
+X_test = X_test.merge(y_test[["stay_id", "primary_diag"]], on="stay_id", how="left")
 
 test_ids    = X_test["stay_id"].values
 test_labels = y_test.set_index("stay_id").loc[test_ids, "los_gt7"].values
@@ -115,12 +118,12 @@ all_train_stay_ids = X_train["stay_id"].values
 all_train_labels   = train_labels  # already loaded above
 all_train_emb      = np.stack([emb_dict[int(sid)] for sid in all_train_stay_ids])
 
-train_icd = X_train[ICD_COLS].values   # (N_train, n_icd)
+train_pdiag = X_train["primary_diag"].values   # (N_train,)
 train_icu = X_train[ICU_COLS].values   # (N_train, n_icu)
 train_adm = X_train[ADM_COLS].values   # (N_train, n_adm)
 train_age = X_train["age"].values       # (N_train,)
 
-test_icd  = X_test[ICD_COLS].values
+test_pdiag = X_test["primary_diag"].values
 test_icu  = X_test[ICU_COLS].values
 test_adm  = X_test[ADM_COLS].values
 test_age  = X_test["age"].values
@@ -148,13 +151,13 @@ for i, sid in enumerate(tqdm(test_ids, desc="Filtered prototypes", leave=False))
     q      = sid_to_test_row[int(sid)]
     target = emb_dict[int(sid)]
 
-    q_icd = int(np.argmax(test_icd[q])) if test_icd[q].max() == 1 else None
+    q_diag = test_pdiag[q]
     q_icu = int(np.argmax(test_icu[q])) if test_icu[q].max() == 1 else None
     q_adm = int(np.argmax(test_adm[q])) if test_adm[q].max() == 1 else None
 
     mask = np.ones(len(X_train), dtype=bool)
-    if q_icd is not None:
-        mask &= train_icd[:, q_icd] == 1
+    if q_diag != "unknown":
+        mask &= train_pdiag == q_diag
     if q_icu is not None:
         mask &= train_icu[:, q_icu] == 1
     if q_adm is not None:

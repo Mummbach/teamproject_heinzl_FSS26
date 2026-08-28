@@ -1,0 +1,28 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Only the packages tests/ actually imports (numpy/pandas/tqdm via
+      # prd_net/02_peer-groups.py, plus pytest itself) — not the full
+      # pipeline/requirements.txt, which pulls in torch/shap/streamlit etc.
+      # that these tests don't need.
+      - name: Install test dependencies
+        run: pip install numpy==1.26.4 pandas==3.0.1 tqdm==4.67.3 pytest==9.1.1
+
+      - name: Run tests
+        working-directory: pipeline
+        run: pytest -v

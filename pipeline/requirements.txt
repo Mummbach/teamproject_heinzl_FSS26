@@ -26,3 +26,6 @@ streamlit==1.58.0       # fd07_dashboard.py     (interactive dashboard)
 optuna                  # 08_hyperparameter_search.py (GRU hyperparameter search)
 transformers            # 02b_cxr_features.py / 01e_extract_bioclinicalbert_embeddings.py (BioClinicalBERT)
 umap-learn              # 14_patient_mii_clustering.py (falls back gracefully if absent)
+
+# Testing
+pytest==9.1.1            # tests/ — unit tests for pure-logic functions

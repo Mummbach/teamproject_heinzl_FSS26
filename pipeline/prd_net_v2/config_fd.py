@@ -99,7 +99,7 @@ DIFF_INPUT = "both"                    # both | pos_only | neg_only | proto_gap
 
 # DESIGN DECISION D4 — model: pure linear (default, keeps exact attribution).
 # A shallow MLP is available as an ablation, only justified if it buys AUPRC.
-MODEL = "linear"                       # linear | mlp
+MODEL = os.environ.get("FD_MODEL", "linear")   # linear | mlp
 MLP_HIDDEN = 32
 
 # ── Training (mirrors prd_net/04_prd-train.py) ────────────────────────────────
@@ -226,6 +226,8 @@ def _run_suffix() -> str:
     _wd_suffix — an ablation run must not be able to clobber the reported
     checkpoint or metrics."""
     parts = ""
+    if MODEL != "linear":
+        parts += f"_{MODEL}"
     if not USE_ICD_ABSOLUTE:
         parts += "_noicd"
     if SEED != 0:

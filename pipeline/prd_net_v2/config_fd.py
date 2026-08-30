@@ -12,6 +12,7 @@ nothing in pipeline/prd_net/ (01-05) is ever touched or modified by this track.
 """
 
 from pathlib import Path
+import os
 import sys
 
 # Reach pipeline/config.py (and reuse ICD_CATEGORIES so we never re-list them)
@@ -21,7 +22,9 @@ from config import OUTPUT_DIR, ICD_CATEGORIES
 # ── Observation window ────────────────────────────────────────────────────────
 # Single switch driving the whole fd01->fd05 chain. 48 is the primary analysis;
 # set to 24 for the robustness / comparability run (Section 6 of the brief).
-WINDOW_HOURS = 24
+# Overridable per run with FD_WINDOW=24 so an ablation shell never has to edit
+# this file (and so cannot leave it switched, which has happened).
+WINDOW_HOURS = int(os.environ.get("FD_WINDOW", 48))
 
 # ── Aggregation (D5) ──────────────────────────────────────────────────────────
 # DESIGN DECISION D5 — aggregation granularity: summary stats per time-series
@@ -151,10 +154,26 @@ ICD_LABELS = {c: c[len("icd_"):].replace("_", " ").title() for c in ICD_COLS}
 USE_ABSOLUTE_FEATURES = True
 ABSOLUTE_FEATURES = ICU_COLS + ICD_COLS + ADM_COLS
 
+# ── ICD provenance ablation ───────────────────────────────────────────────────
+# diagnoses_icd carries no timestamp: the codes are assigned per admission and
+# finalised for billing at discharge, so unlike the medication/vital/output
+# channels they cannot be restricted to the observation window. Setting this
+# False (FD_NO_ICD=1) drops the 18 icd_* columns from the absolute block to
+# price what they contribute. It does NOT touch the peer filter, which matches
+# on primary_diag in fd02 and is unaffected — so the resulting figure is the
+# contribution of the icd_* FEATURES, not the model's total exposure to
+# diagnosis timing, which is larger.
+USE_ICD_ABSOLUTE = os.environ.get("FD_NO_ICD", "") not in ("1", "true", "True")
+
+# Seed for the fd04 training run (init + batch order). 0 is the reported model.
+SEED = int(os.environ.get("FD_SEED", 0))
+
 
 def absolute_feature_names() -> list[str]:
     """Ordered list of the patient's-own-value (non-diff) input features."""
-    return list(ABSOLUTE_FEATURES) if USE_ABSOLUTE_FEATURES else []
+    if not USE_ABSOLUTE_FEATURES:
+        return []
+    return list(ICU_COLS + (ICD_COLS if USE_ICD_ABSOLUTE else []) + ADM_COLS)
 
 
 # ── v1 caches, only read when RETRIEVAL_SPACE == "embedding" (see D1) ─────────
@@ -201,6 +220,19 @@ def _wd_suffix(weight_decay: float | None) -> str:
     return "" if wd == 0.0 else f"_wd{wd:g}"
 
 
+def _run_suffix() -> str:
+    """Empty for the reported configuration (all icd_* present, seed 0), so the
+    reported filenames are unchanged; a tag otherwise, on the same reasoning as
+    _wd_suffix — an ablation run must not be able to clobber the reported
+    checkpoint or metrics."""
+    parts = ""
+    if not USE_ICD_ABSOLUTE:
+        parts += "_noicd"
+    if SEED != 0:
+        parts += f"_s{SEED}"
+    return parts
+
+
 def feature_matrix_path(split: str, scaled: bool, window: int | None = None) -> Path:
     kind = "scaled" if scaled else "raw"
     return OUTPUT_DIR / f"fd_feature_matrix_{split}_{kind}_{_tag(window)}.parquet"
@@ -217,15 +249,15 @@ def prototypes_path(split: str, window: int | None = None) -> Path:
 
 
 def checkpoint_path(window: int | None = None, weight_decay: float | None = None) -> Path:
-    return CKPT_DIR / f"fd_diff_v1_{_tag(window)}{_wd_suffix(weight_decay)}.pt"
+    return CKPT_DIR / f"fd_diff_v1_{_tag(window)}{_wd_suffix(weight_decay)}{_run_suffix()}.pt"
 
 
 def threshold_path(window: int | None = None, weight_decay: float | None = None) -> Path:
-    return CKPT_DIR / f"fd_diff_v1_{_tag(window)}{_wd_suffix(weight_decay)}_threshold.pt"
+    return CKPT_DIR / f"fd_diff_v1_{_tag(window)}{_wd_suffix(weight_decay)}{_run_suffix()}_threshold.pt"
 
 
 def metrics_path(window: int | None = None, weight_decay: float | None = None) -> Path:
-    return OUTPUT_DIR / f"fd_metrics_{_tag(window)}{_wd_suffix(weight_decay)}.json"
+    return OUTPUT_DIR / f"fd_metrics_{_tag(window)}{_wd_suffix(weight_decay)}{_run_suffix()}.json"
 
 
 def export_path(window: int | None = None) -> Path:

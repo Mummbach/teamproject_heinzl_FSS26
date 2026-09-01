@@ -140,11 +140,13 @@ copy is kept for the dashboard; raw deltas are recovered as
 | D1 | Retrieval space | `feature` (standalone K-NN, no v1 dependency); `embedding` = reuse `prd_net_peers.pkl` for a same-peers-as-v1 comparison — see "Retrieval space" above |
 | D2 | Prototype aggregation | simple **mean** (`USE_PROTOTYPE_WEIGHTING=False`) |
 | D3 | Diff input | `both` = `[delta_pos, delta_neg]` (`pos_only`/`neg_only`/`proto_gap` available) |
-| D4 | Model | `linear` (`mlp` ablation behind a switch) |
+| D4 | Model | `linear` (`mlp` ablation via `FD_MODEL=mlp`, no file edit) |
 | D5 | Aggregation granularity | summary stats (`AGG_STATS`) |
 
 All switches live in `config_fd.py` and are marked with `# DESIGN DECISION:`
-comments at each choice point.
+comments at each choice point. `WINDOW_HOURS`, `USE_ICD_ABSOLUTE` and the fd04
+training seed are additionally overridable per run via `FD_WINDOW`,
+`FD_NO_ICD` and `FD_SEED` — see the ablation-switches table above.
 
 ## Results (test set)
 
@@ -238,11 +240,14 @@ python3 prd_net/05_prd-inference.py         # (optional) latent-PRD test metrics
 
 ```bash
 cd prd_net_v2
-# 48h (primary): set WINDOW_HOURS = 48 in config_fd.py, then
+# 48h (primary, default — no env var needed):
 python3 fd01_feature-matrix.py && python3 fd02_feature-prototypes.py \
   && python3 fd04_diff-train.py && python3 fd06_dashboard-export.py
 python3 fd07_report.py                       # -> exports/fd_dashboard_48h.html
-# 24h (robustness): set WINDOW_HOURS = 24, re-run the same four + fd07
+# 24h (robustness): prefix the same four + fd07 with FD_WINDOW=24
+FD_WINDOW=24 python3 fd01_feature-matrix.py && FD_WINDOW=24 python3 fd02_feature-prototypes.py \
+  && FD_WINDOW=24 python3 fd04_diff-train.py && FD_WINDOW=24 python3 fd06_dashboard-export.py
+FD_WINDOW=24 python3 fd07_report.py          # -> exports/fd_dashboard_24h.html
 ```
 
 `fd05_diff-explain.py` is an optional stdout sanity check (`w·Δ == SHAP`).
@@ -250,10 +255,31 @@ python3 fd07_report.py                       # -> exports/fd_dashboard_48h.html
 For the interactive dashboard: `streamlit run fd07_dashboard.py` (window is a
 sidebar toggle, no config edit needed).
 
+**Ablation switches (env vars, no file edit needed)**
+
+| var | effect | default |
+|-----|--------|---------|
+| `FD_WINDOW` | observation window in hours | `48` |
+| `FD_NO_ICD=1` | drops the 18 `icd_*` columns from the absolute block | off |
+| `FD_MODEL=mlp` | MLP instead of the linear model (D4 ablation) | `linear` |
+| `FD_SEED` | training seed for `fd04`'s `torch.manual_seed` | `0` |
+
+These exist so an ablation run never has to hand-edit `config_fd.py` — that's
+how `WINDOW_HOURS` once got left at `24` and silently became the default for
+every subsequent run. At the default configuration (no env vars set), all
+artifact paths are unchanged from before. Departing from any of the four
+appends a suffix to the checkpoint/threshold/metrics filenames (e.g.
+`fd_diff_v1_48h_mlp_noicd_s3.pt`, `fd_metrics_48h_mlp_noicd_s3.json`) so an
+ablation run can never overwrite the reported checkpoint or metrics — same
+mechanism as the existing `weight_decay` suffix. `RETRIEVAL_SPACE` and
+`USE_CXR_FEATURES` are **not** covered by this guard yet: they still require a
+direct edit to `config_fd.py` and can still overwrite the current window's
+artifacts (see "Retrieval space" above).
+
 **Notes**
-- **Determinism:** splits and training use fixed seeds; the GRU
-  `DataLoader(shuffle=True)` on CPU is close but not bit-identical run to run, so
-  downstream metrics can wobble by ~0.01.
+- **Determinism:** splits and training use fixed seeds (`FD_SEED` overrides
+  fd04's, default `0`); the GRU `DataLoader(shuffle=True)` on CPU is close but
+  not bit-identical run to run, so downstream metrics can wobble by ~0.01.
 - **Vitals fix:** `config.py` `RANGE_FILTERS` reject probe-disconnect zeros
   (SpO₂/BP = 0, etc.); this only takes effect when `preprocessing/02_features.py` re-parses the
   raw data — a v2-only re-run reuses the existing `timeseries.parquet`.
@@ -274,7 +300,7 @@ space — only needed if `RETRIEVAL_SPACE = "embedding"` in `config_fd.py`.
 
 | file | role |
 |------|------|
-| `config_fd.py` | hyperparameters, centralized column groups, window-tagged paths, `feature_names()` |
+| `config_fd.py` | hyperparameters, centralized column groups, window-tagged + ablation-suffixed paths, `feature_names()`; `FD_WINDOW`/`FD_NO_ICD`/`FD_MODEL`/`FD_SEED` env overrides |
 | `fd01_feature-matrix.py` | aggregate `timeseries.parquet` → F=77 (+ CXR flags, + 29 absolute one-hots), impute, scale, persist raw+scaled+scaler |
 | `fd02_feature-prototypes.py` | feature-space prototypes: train via peer cache, val/test via filtered K-NN |
 | `fd03_diff-model.py` | diff assembly, `LinearDiffModel` (+ MLP), sklearn LogisticRegression reference |

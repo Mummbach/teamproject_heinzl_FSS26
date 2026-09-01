@@ -148,7 +148,7 @@ def load_absolute_block(split: str, stay_ids) -> np.ndarray | None:
     if not C.USE_ABSOLUTE_FEATURES:
         return None
     m = pd.read_parquet(C.feature_matrix_path(split, scaled=True)).set_index("stay_id")
-    return m.loc[list(stay_ids), C.ABSOLUTE_FEATURES].to_numpy(dtype=np.float32)
+    return m.loc[list(stay_ids), C.absolute_feature_names()].to_numpy(dtype=np.float32)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

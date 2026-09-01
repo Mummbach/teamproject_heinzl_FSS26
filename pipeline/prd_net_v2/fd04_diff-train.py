@@ -84,7 +84,7 @@ if __name__ == "__main__":
     Xva_t = torch.tensor(Xva); yva_t = torch.tensor(yva)
     Xte_t = torch.tensor(Xte)
 
-    torch.manual_seed(0)
+    torch.manual_seed(C.SEED)
     model = build_model(in_dim)
     opt = torch.optim.Adam(model.parameters(), lr=C.LR, weight_decay=C.WEIGHT_DECAY)
     loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([C.POS_WEIGHT]))

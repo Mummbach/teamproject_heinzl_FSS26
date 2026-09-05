@@ -97,14 +97,14 @@ teamproject_heinzl_FSS26/
 
 ## 📦 Dataset
 
-This project uses **[MIMIC-IV v3.1](https://physionet.org/content/mimiciv/3.1/)** — a large, freely available database of de-identified Electronic Health Records from the Beth Israel Deaconess Medical Center ICU.
+This project uses **[MIMIC-IV v3.1](https://physionet.org/content/mimiciv/3.1/)** — a large, freely available database of de-identified Electronic Health Records from the Beth Israel Deaconess Medical Center ICU — extended with **[MIMIC-CXR v2.1.0](https://physionet.org/content/mimic-cxr/2.1.0/)** for the free-text chest X-ray radiology reports.
 
 | Property | Detail |
 |---|---|
 | **Dataset** | MIMIC-IV ICU |
 | **Size** | ~70,000 ICU stays |
 | **Modalities** | Time series vitals, clinical text reports, tabular features |
-| **Extension** | MIMIC-CXR-JPG (lung images) |
+| **Extension** | [MIMIC-CXR v2.1.0](https://physionet.org/content/mimic-cxr/2.1.0/) (radiology reports) |
 | **Access** | Requires PhysioNet credentialing |
 
 ### Prediction Tasks
@@ -115,7 +115,7 @@ This project uses **[MIMIC-IV v3.1](https://physionet.org/content/mimiciv/3.1/)*
 | **48-h Mortality** | Binary classification | Death within 48h |
 | **Readmission** | Binary classification | Readmission within 30 days |
 
-> ⚠️ **Data Access**: MIMIC-IV is not included in this repository. You must apply for access via [PhysioNet](https://physionet.org/content/mimiciv/3.1/). Once approved, follow the "Data layout" instructions in [`pipeline/prd_net_v2/README.md`](pipeline/prd_net_v2/README.md) to place the files correctly under `pipeline/data/`.
+> ⚠️ **Data Access**: Neither MIMIC-IV nor MIMIC-CXR is included in this repository. You must apply for access via [PhysioNet](https://physionet.org/content/mimiciv/3.1/) — MIMIC-CXR requires the same credentialing, granted separately via its own [PhysioNet page](https://physionet.org/content/mimic-cxr/2.1.0/). Once approved, follow the "Data layout" instructions in [`pipeline/prd_net_v2/README.md`](pipeline/prd_net_v2/README.md) to place the files correctly under `pipeline/data/`.
 
 ---
 

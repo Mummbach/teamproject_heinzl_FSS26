@@ -176,9 +176,12 @@ matches the torch model (sanity check), and `shap.LinearExplainer` reproduces
 
 - Peer-cache row indices reference `X_train` order; fd01/fd02 assert the feature
   matrix is in the same order.
-- **312** training patients have an empty peer side (after the admission-type
-  hard filter added upstream) and are skipped, exactly as in
-  `prd_net/04_prd-train.py`. (The original brief's "~6" predates that filter.)
+- Under `RETRIEVAL_SPACE="embedding"` only: **312** training patients have an
+  empty peer side (after the admission-type hard filter added upstream) and
+  are skipped, exactly as in `prd_net/04_prd-train.py`. (The original brief's
+  "~6" predates that filter.) The default `feature` mode never skips a
+  training patient — an empty side there falls back to the unfiltered class
+  pool instead, same as val/test (see "Retrieval space" above).
 - Files are loaded via `importlib` where the name starts with a digit / contains
   a hyphen, matching the existing track.
 - All artifacts are window-tagged (`_48h` / `_24h`) so both runs coexist.

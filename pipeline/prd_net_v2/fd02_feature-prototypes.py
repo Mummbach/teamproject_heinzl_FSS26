@@ -6,15 +6,22 @@ Builds, per patient, a positive and a negative prototype IN FEATURE SPACE:
   neg_proto[F] = (weighted) mean of the short-stay peers' scaled feature vectors
 
 Peer membership (D1):
-  - Train patients: reuse prd_net_peers.pkl (embedding-space K-NN, identical to
-    the existing track), map the cached row indices into the scaled feature
-    matrix, and average those FEATURE vectors. The ~312 patients with an empty
-    peer side are skipped, exactly as in prd_net/04_prd-train.py.
-  - Val/test patients: re-apply the same hard filter (primary ICD diagnosis
-    chapter AND ICU type AND admission type) + soft age filter against the
-    training set, rank by distance in RETRIEVAL_SPACE, take the K nearest per
-    class, average their FEATURE vectors. Falls back to the unfiltered class
-    pool if a side is empty.
+  - Default (RETRIEVAL_SPACE="feature"): train, val AND test patients all
+    re-apply the same hard filter (primary ICD diagnosis chapter AND ICU type
+    AND admission type) + soft age filter against the training set, rank
+    candidates by L2 distance in this track's own scaled feature space, and
+    average the K nearest per class. Falls back to the unfiltered class pool
+    if a side is empty — no patient is ever skipped under this mode,
+    including at train time.
+  - Ablation (RETRIEVAL_SPACE="embedding"): train patients instead reuse
+    prd_net_peers.pkl (v1's embedding-space K-NN cache, identical to the
+    existing track) directly — mapping the cached row indices into the scaled
+    feature matrix and averaging those FEATURE vectors. The ~312 train
+    patients with an empty peer side THERE are skipped, exactly as in
+    prd_net/04_prd-train.py (this cache-based path has no fallback of its
+    own). Val/test patients still re-apply the hard+age filter, but rank by
+    distance in RETRIEVAL_SPACE (i.e. the v1 embedding) instead, with the
+    same fallback-to-unfiltered-pool behaviour as the default mode.
 
 Prototypes are built in SCALED (z-scored) feature space so the later deltas are
 in comparable SD units. Raw-unit values are recovered downstream via the scaler.
@@ -81,9 +88,12 @@ def build_train_prototypes_from_cache(
     train_ids, train_labels, M_train, emb_cache, peer_cache,
     cxr_idx=None, cxr_pos_ref=None, cxr_neg_ref=None, has_report=None,
 ) -> dict:
-    """Train prototypes via the cached embedding-space peers (D1 default).
+    """Train prototypes via the cached embedding-space peers (D1 ablation
+    only — used when RETRIEVAL_SPACE="embedding"; the default "feature" mode
+    uses build_prototypes_filtered for train patients too, see below).
 
-    Returns a bundle dict; patients with an empty peer side are skipped.
+    Returns a bundle dict; patients with an empty peer side are skipped, with
+    no fallback (unlike build_prototypes_filtered).
     """
     F = M_train.shape[1]
     kept_ids, kept_lab = [], []

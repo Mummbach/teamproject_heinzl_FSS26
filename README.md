@@ -174,17 +174,18 @@ You'll see it confirmed in the bottom-right corner of VS Code.
 
 ### 7️⃣ Verify the setup
 
-Open `notebooks/01_data_exploration.ipynb` and run:
+Run this from the terminal (inside the activated venv):
 
-```python
-import torch
-import torch_geometric
-import pandas as pd
-import numpy as np
-
-print("Environment setup successful!")
-print(f"PyTorch: {torch.__version__}")
-print(f"PyG: {torch_geometric.__version__}")
+```bash
+python3 -c "
+import torch, pandas, numpy, sklearn, shap
+print('Environment setup successful!')
+print(f'PyTorch : {torch.__version__}')
+print(f'pandas  : {pandas.__version__}')
+print(f'numpy   : {numpy.__version__}')
+print(f'sklearn : {sklearn.__version__}')
+print(f'shap    : {shap.__version__}')
+"
 ```
 
 If it runs without error — 🎉 you're ready to go!

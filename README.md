@@ -5,41 +5,6 @@
 
 ---
 
-## ⚙️ Pipeline Configuration
-
-The pipeline behaviour is controlled by flags at the top of each script — no code changes needed, just flip the value and re-run.
-
-### `pipeline/preprocessing/01_selection.py`
-
-| Variable | Values | Description |
-|---|---|---|
-| `EXCLUDE_EARLY_DEATHS` | `False` (default) / `True` | Exclude patients who died between 48h and 7d after ICU admission (bias check) |
-
-### `pipeline/preprocessing/04_preprocessing.py`
-
-| Variable | Values | Description |
-|---|---|---|
-| `IMPUTATION_STRATEGY` | `"median"` (default) / `"mean"` / `"rf"` | Strategy for filling missing feature values |
-| `USE_MISSINGNESS_FLAGS` | `True` (default) / `False` | Include binary `_missing` flags as extra features |
-| `USE_AGGREGATED_VITALS` | `True` (default) / `False` | Include aggregated vital sign stats (mean, std, slope etc.) in the static feature set |
-
-### `pipeline/baseline/07_model_gru.py`
-
-| Variable | Values | Description |
-|---|---|---|
-| `USE_HOURLY_TIMESERIES` | `True` (default) / `False` | Enable GRU branch on 48h × 12 vital hourly time-series |
-
-### Typical comparison runs
-
-| Experiment | `USE_AGGREGATED_VITALS` | `USE_HOURLY_TIMESERIES` |
-|---|---|---|
-| Full model | `True` | `True` |
-| No hourly TS (ablation) | `True` | `False` |
-| No aggregated vitals (ablation) | `False` | `True` |
-| Static only (ablation) | `False` | `False` |
-
----
-
 ## 📌 Research Question
 
 > *How can comparative reasoning against similar patients be leveraged to produce clinically meaningful and faithful explanations for AI-based predictions in critical care?*
@@ -125,24 +90,15 @@ Place the raw files under `pipeline/data/`:
 pipeline/data/
   hosp/                             MIMIC-IV hosp  (admissions, patients, diagnoses_icd, prescriptions, …)
   icu/                              MIMIC-IV icu   (icustays, chartevents.csv.gz, outputevents, …)
-  RXCUI2atc4.csv                    NDC → ATC mapping
-  mimic-cxr-2.0.0-metadata.csv.gz
-  mimic-cxr-reports/                per-subject radiology report .txt files (p10/, p11/, …)
+  RXCUI2atc4.csv                    NDC → ATC mapping (download link below)
+  mimic-cxr-reports/                MIMIC-CXR metadata + per-subject radiology reports
+    mimic-cxr-2.0.0-metadata.csv.gz
+    p10/, p11/, …                   report .txt files, one folder per subject
 ```
 
-> **Gotcha:** `preprocessing/01b_align_cxr_reports.py` expects the CXR metadata *inside*
-> `mimic-cxr-reports/`. If yours sits directly in `data/`, symlink it once:
-> ```bash
-> ln -s ../mimic-cxr-2.0.0-metadata.csv.gz \
->   pipeline/data/mimic-cxr-reports/mimic-cxr-2.0.0-metadata.csv.gz
-> ```
-
-`RXCUI2atc4.csv` is not part of either PhysioNet dataset — it's a separate NDC→ATC
-drug-code mapping. `config.py`'s in-code comment points to `MIT-LCP/mimic-code`,
-but that link doesn't actually host this file; it originates from
+`RXCUI2atc4.csv` is not part of either PhysioNet dataset — download it from
 [`sjy1203/GAMENet`](https://github.com/sjy1203/GAMENet/blob/master/data/ndc2atc_level4.csv)
-(as `data/ndc2atc_level4.csv`) and is reused under this filename across several
-downstream MIMIC medication-mapping projects.
+(there named `ndc2atc_level4.csv`) and save it as `pipeline/data/RXCUI2atc4.csv`.
 
 ---
 
@@ -291,6 +247,79 @@ wrong column"* below):
 
 ---
 
+## ⚙️ Pipeline Configuration
+
+The pipeline behaviour is controlled by flags at the top of each script — no code changes needed, just flip the value and re-run.
+
+### `pipeline/preprocessing/01_selection.py`
+
+| Variable | Values | Description |
+|---|---|---|
+| `EXCLUDE_EARLY_DEATHS` | `False` (default) / `True` | Exclude patients who died between 48h and 7d after ICU admission (bias check) |
+
+### `pipeline/preprocessing/04_preprocessing.py`
+
+| Variable | Values | Description |
+|---|---|---|
+| `IMPUTATION_STRATEGY` | `"median"` (default) / `"mean"` / `"rf"` | Strategy for filling missing feature values |
+| `USE_MISSINGNESS_FLAGS` | `True` (default) / `False` | Include binary `_missing` flags as extra features |
+| `USE_AGGREGATED_VITALS` | `True` (default) / `False` | Include aggregated vital sign stats (mean, std, slope etc.) in the static feature set |
+
+### `pipeline/baseline/07_model_gru.py`
+
+| Variable | Values | Description |
+|---|---|---|
+| `USE_HOURLY_TIMESERIES` | `True` (default) / `False` | Enable GRU branch on 48h × 12 vital hourly time-series |
+
+### Typical comparison runs
+
+| Experiment | `USE_AGGREGATED_VITALS` | `USE_HOURLY_TIMESERIES` |
+|---|---|---|
+| Full model | `True` | `True` |
+| No hourly TS (ablation) | `True` | `False` |
+| No aggregated vitals (ablation) | `False` | `True` |
+| Static only (ablation) | `False` | `False` |
+
+---
+
+## 🔬 Methodology Overview
+
+```
+MIMIC-IV ICU Data
+      │
+      ▼
+Multimodal Feature Encoding
+  ├── Time series vitals  → Temporal encoder (LSTM / Transformer)
+  ├── Clinical text       → Text encoder (BioClinicalBERT)
+  └── Tabular features    → MLP encoder
+      │
+      ▼
+Patient Similarity Graph Construction
+  (k-NN based on encoded patient representations)
+      │
+      ▼
+Graph Neural Network (GNN)
+  (Message passing over patient graph)
+      │
+      ▼
+Prediction + Case-Based Explanation
+  ├── Factual:     "Similar patients also stayed > 7 days"
+  └── Contrastive: "Peers with < 7 days had better SpO2"
+```
+
+---
+
+## 📊 Evaluation
+
+We evaluate explanations along two dimensions:
+
+- **Faithfulness**: Do the explanations reflect the model's actual reasoning?
+- **Clinical Meaningfulness**: Are the cited patient similarities clinically plausible?
+
+Metrics include: fidelity, explanation stability, nearest-neighbor alignment, and expert evaluation.
+
+---
+
 ## 🧭 Git Workflow Guide
 
 ### 1. Update main before branching
@@ -344,44 +373,6 @@ git push origin --delete feature/your-branch-name
 # Delete local branch
 git branch -d feature/your-branch-name
 ```
-
----
-
-## 🔬 Methodology Overview
-
-```
-MIMIC-IV ICU Data
-      │
-      ▼
-Multimodal Feature Encoding
-  ├── Time series vitals  → Temporal encoder (LSTM / Transformer)
-  ├── Clinical text       → Text encoder (BioClinicalBERT)
-  └── Tabular features    → MLP encoder
-      │
-      ▼
-Patient Similarity Graph Construction
-  (k-NN based on encoded patient representations)
-      │
-      ▼
-Graph Neural Network (GNN)
-  (Message passing over patient graph)
-      │
-      ▼
-Prediction + Case-Based Explanation
-  ├── Factual:     "Similar patients also stayed > 7 days"
-  └── Contrastive: "Peers with < 7 days had better SpO2"
-```
-
----
-
-## 📊 Evaluation
-
-We evaluate explanations along two dimensions:
-
-- **Faithfulness**: Do the explanations reflect the model's actual reasoning?
-- **Clinical Meaningfulness**: Are the cited patient similarities clinically plausible?
-
-Metrics include: fidelity, explanation stability, nearest-neighbor alignment, and expert evaluation.
 
 ---
 

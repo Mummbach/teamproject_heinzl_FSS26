@@ -94,7 +94,11 @@ pipeline/data/
     p10/, p11/, …                   report .txt files, one folder per subject
 ```
 
-`RXCUI2atc4.csv` is not part of either PhysioNet dataset — download it from
+`RXCUI2atc4.csv` maps the NDC drug codes in `prescriptions.csv.gz` to ATC
+drug classes, which `preprocessing/02_features.py` turns into the `atc_*`
+medication features. It is not part of either PhysioNet dataset — MIMIC-IV
+only stores the raw NDC codes, not a drug-class crosswalk — so download it
+separately from
 [`sjy1203/GAMENet`](https://github.com/sjy1203/GAMENet/blob/master/data/ndc2atc_level4.csv)
 (there named `ndc2atc_level4.csv`) and save it as `pipeline/data/RXCUI2atc4.csv`.
 

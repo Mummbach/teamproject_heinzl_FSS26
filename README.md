@@ -17,30 +17,28 @@ We develop **Patient Similarity-Based Graph Neural Networks** that explain AI pr
 
 ```
 teamproject_heinzl_FSS26/
-├── pipeline/
-│   ├── config.py              # shared paths/constants — imported by all three tracks below
-│   ├── multimodal_utils.py    # shared GRU/SHAP dataset + model helpers (baseline + explainability/shap_prdnet.py)
-│   ├── data/                  # raw MIMIC-IV / MIMIC-CXR tables (gitignored, PhysioNet-credentialed)
-│   ├── output/                # generated features/models/plots, shared across all three tracks (gitignored)
-│   │
-│   ├── preprocessing/           # 01–06: cohort → features → split → impute → normalize (shared by all 3 tracks below)
-│   │   ├── 01_selection.py … 01d_extract_radiology_features.py          # optional CXR chain
-│   │   ├── 02_features.py, 02b_cxr_features.py, 03_splitting.py
-│   │   └── 04_preprocessing.py, 05_analysis.py, 06_normalize.py
-│   │
-│   ├── baseline/                # 07–14: GRU baseline model + its explainability/monitoring
-│   │   ├── 07_model_gru.py, 08_crossval.py, 08b_hyperparameter_search.py
-│   │   ├── 09_shap.py, 10_explainability.py, 11_timeshap.py             # baseline GRU explainability
-│   │   ├── 12_ts_monitoring.py … 14_patient_mii_clustering.py           # monitoring-intensity track
-│   │   └── correlation.py                                               # feature-redundancy EDA
-│   │
-│   ├── prd_net/                # v1: latent-space Patient-peer Reference/Difference net (GRU embedding delta)
-│   ├── prd_net_v2/             # v2: feature-space contrastive difference model (see its README for the full story)
-│   │   └── README.md           # design decisions, reproduction steps, results — start here for PRD-Net
-│   │
-│   └── explainability/         # shap_prdnet.py — SHAP explanations for prd_net v1 (the only file here; see note below)
-│
-└── presentations/              # slide decks
+└── pipeline/
+    ├── config.py              # shared paths/constants — imported by all three tracks below
+    ├── multimodal_utils.py    # shared GRU/SHAP dataset + model helpers (baseline + explainability/shap_prdnet.py)
+    ├── data/                  # raw MIMIC-IV / MIMIC-CXR tables (gitignored, PhysioNet-credentialed)
+    ├── output/                # generated features/models/plots, shared across all three tracks (gitignored)
+    │
+    ├── preprocessing/           # 01–06: cohort → features → split → impute → normalize (shared by all 3 tracks below)
+    │   ├── 01_selection.py … 01d_extract_radiology_features.py          # optional CXR chain
+    │   ├── 02_features.py, 02b_cxr_features.py, 03_splitting.py
+    │   └── 04_preprocessing.py, 05_analysis.py, 06_normalize.py
+    │
+    ├── baseline/                # 07–14: GRU baseline model + its explainability/monitoring
+    │   ├── 07_model_gru.py, 08_crossval.py, 08b_hyperparameter_search.py
+    │   ├── 09_shap.py, 10_explainability.py, 11_timeshap.py             # baseline GRU explainability
+    │   ├── 12_ts_monitoring.py … 14_patient_mii_clustering.py           # monitoring-intensity track
+    │   └── correlation.py                                               # feature-redundancy EDA
+    │
+    ├── prd_net/                # v1: latent-space Patient-peer Reference/Difference net (GRU embedding delta)
+    ├── prd_net_v2/             # v2: feature-space contrastive difference model (see its README for the full story)
+    │   └── README.md           # design decisions, reproduction steps, results — start here for PRD-Net
+    │
+    └── explainability/         # shap_prdnet.py — SHAP explanations for prd_net v1 (the only file here; see note below)
 ```
 
 > **Note on `requirements.txt`**: `pipeline/requirements.txt` is the single, curated
@@ -228,7 +226,7 @@ wrong column"* below):
 | model | F1 | AUROC | AUPRC |
 |---|--:|--:|--:|
 | GRU (baseline, 48h) | 0.611 | 0.848 | 0.644 |
-| PRD-Net latent (48h) | 0.617 | 0.833 | 0.598 |
+| PRD-Net latent (48h) | 0.621 | 0.838 | 0.613 |
 | PRD-Net feature-diff (48h) | 0.601 | 0.834 | 0.607 |
 | PRD-Net feature-diff (24h) | 0.562 | 0.800 | 0.543 |
 

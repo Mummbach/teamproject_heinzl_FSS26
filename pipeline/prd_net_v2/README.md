@@ -147,7 +147,7 @@ GRU, old PRD and (their) baselines are 48h-only. Test-set results:
 | model | window | F1 | AUROC | AUPRC |
 |-------|:------:|---:|------:|------:|
 | GRU (baseline) | 48h | 0.611 | 0.848 | 0.644 |
-| Old PRD (latent delta) | 48h | 0.617 | 0.833 | 0.598 |
+| Old PRD (latent delta) | 48h | 0.621 | 0.838 | 0.613 |
 | New PRD (feature-diff) | 48h | 0.601 | 0.834 | 0.607 |
 | New PRD (feature-diff) | 24h | 0.562 | 0.800 | 0.543 |
 
@@ -372,11 +372,12 @@ training seed are additionally overridable per run via `FD_WINDOW`,
 
 - Peer-cache row indices reference `X_train` row order; `fd01`/`fd02` assert
   the feature matrix matches that order.
-- Under `RETRIEVAL_SPACE="embedding"` only, 312 training patients have an
-  empty peer side (after the admission-type hard filter added upstream) and
-  are skipped, matching `prd_net/04_prd-train.py`. The default `feature` mode
-  never skips a training patient — an empty side falls back to the unfiltered
-  class pool instead, same as val/test (see "Retrieval space" above).
+- Under `RETRIEVAL_SPACE="embedding"` only, 1,361 of 21,429 training patients
+  (leaving 20,068) have an empty peer side (after the admission-type hard
+  filter added upstream) and are skipped, matching `prd_net/04_prd-train.py`.
+  The default `feature` mode never skips a training patient — an empty side
+  falls back to the unfiltered class pool instead, same as val/test (see
+  "Retrieval space" above).
 - Scripts are loaded via `importlib`, since filenames start with a digit or
   contain a hyphen.
 - All artifacts are window-tagged (`_48h` / `_24h`), so both windows coexist

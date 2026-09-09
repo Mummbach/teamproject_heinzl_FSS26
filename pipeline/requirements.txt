@@ -1,5 +1,5 @@
 # PRD-Net pipeline — dependencies pinned to the versions the reported results
-# were produced with (Python 3.12, macOS/CPU; MPS is not used, GRU trains on CPU).
+# were produced with (Python 3.13, macOS/CPU; MPS is not used, GRU trains on CPU).
 #
 #   python3 -m venv venv
 #   source venv/bin/activate            # Windows: venv\Scripts\activate

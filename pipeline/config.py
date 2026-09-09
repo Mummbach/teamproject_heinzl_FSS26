@@ -15,7 +15,7 @@ ICU_DIR     = DATA_DIR / "icu"
 OUTPUT_DIR  = BASE_DIR / "output"
 
 # RXCUI → ATC mapping file (download separately if missing)
-# Source: https://github.com/MIT-LCP/mimic-code
+# Source: https://github.com/sjy1203/GAMENet/blob/master/data/ndc2atc_level4.csv
 MAPPING_PATH = DATA_DIR / "RXCUI2atc4.csv"
 
 # ── Cohort thresholds ─────────────────────────────────────────────────────────

@@ -115,7 +115,34 @@ This project uses **[MIMIC-IV v3.1](https://physionet.org/content/mimiciv/3.1/)*
 | **48-h Mortality** | Binary classification | Death within 48h |
 | **Readmission** | Binary classification | Readmission within 30 days |
 
-> ⚠️ **Data Access**: Neither MIMIC-IV nor MIMIC-CXR is included in this repository. You must apply for access via [PhysioNet](https://physionet.org/content/mimiciv/3.1/) — MIMIC-CXR requires the same credentialing, granted separately via its own [PhysioNet page](https://physionet.org/content/mimic-cxr/2.1.0/). Once approved, follow the "Data layout" instructions in [`pipeline/prd_net_v2/README.md`](pipeline/prd_net_v2/README.md) to place the files correctly under `pipeline/data/`.
+> ⚠️ **Data Access**: Neither MIMIC-IV nor MIMIC-CXR is included in this repository. You must apply for access via [PhysioNet](https://physionet.org/content/mimiciv/3.1/) — MIMIC-CXR requires the same credentialing, granted separately via its own [PhysioNet page](https://physionet.org/content/mimic-cxr/2.1.0/). Once approved, follow the data layout below before running anything under `preprocessing/` — every track (`baseline/`, `prd_net/`, `prd_net_v2/`) shares these preprocessing scripts.
+
+### Data Layout
+
+Place the raw files under `pipeline/data/`:
+
+```
+pipeline/data/
+  hosp/                             MIMIC-IV hosp  (admissions, patients, diagnoses_icd, prescriptions, …)
+  icu/                              MIMIC-IV icu   (icustays, chartevents.csv.gz, outputevents, …)
+  RXCUI2atc4.csv                    NDC → ATC mapping
+  mimic-cxr-2.0.0-metadata.csv.gz
+  mimic-cxr-reports/                per-subject radiology report .txt files (p10/, p11/, …)
+```
+
+> **Gotcha:** `preprocessing/01b_align_cxr_reports.py` expects the CXR metadata *inside*
+> `mimic-cxr-reports/`. If yours sits directly in `data/`, symlink it once:
+> ```bash
+> ln -s ../mimic-cxr-2.0.0-metadata.csv.gz \
+>   pipeline/data/mimic-cxr-reports/mimic-cxr-2.0.0-metadata.csv.gz
+> ```
+
+`RXCUI2atc4.csv` is not part of either PhysioNet dataset — it's a separate NDC→ATC
+drug-code mapping. `config.py`'s in-code comment points to `MIT-LCP/mimic-code`,
+but that link doesn't actually host this file; it originates from
+[`sjy1203/GAMENet`](https://github.com/sjy1203/GAMENet/blob/master/data/ndc2atc_level4.csv)
+(as `data/ndc2atc_level4.csv`) and is reused under this filename across several
+downstream MIMIC medication-mapping projects.
 
 ---
 
@@ -129,6 +156,9 @@ cd teamproject_heinzl_FSS26
 ```
 
 ### 2️⃣ Create a virtual environment
+
+Requires **Python 3.13** (the version the pinned dependencies in
+`pipeline/requirements.txt` were tested against).
 
 ```bash
 python3 -m venv venv
@@ -200,15 +230,40 @@ If it runs without error — 🎉 you're ready to go!
 
 ---
 
-## 🔬 Reproducing the PRD-Net results
+## 🚀 Running the Pipeline
 
-The implemented pipeline — cohort → features → GRU → PRD-Net → the feature-level
-contrastive **difference track** — and a full **step-by-step reproduction from the
-raw MIMIC tables** live in
-**[`pipeline/prd_net_v2/README.md`](pipeline/prd_net_v2/README.md)** (see *"Full
-reproduction from raw MIMIC"*). Dependencies are pinned in
-[`pipeline/requirements.txt`](pipeline/requirements.txt); the GRU trains on CPU
-(no GPU required), ~15 min end-to-end.
+Full reproduction from the raw MIMIC-IV / MIMIC-CXR tables, once the venv is set
+up (above) and the raw files are placed per "Data Layout" (above). Dependencies
+are pinned in [`pipeline/requirements.txt`](pipeline/requirements.txt); the GRU
+trains on CPU (no GPU required), ~15 min end-to-end on a laptop (dominated by
+the ~3.5 GB `chartevents.csv.gz` parse and GRU training).
+
+This covers everything shared across tracks — cohort → features → GRU baseline
+→ PRD-Net v1 (latent delta). Run from `pipeline/`:
+
+```bash
+cd pipeline
+python3 preprocessing/01_selection.py                     # cohort.csv  (ICU cohort, LOS>7 label)
+python3 preprocessing/01b_align_cxr_reports.py            # cohort_with_cxr.csv
+python3 preprocessing/01c_extract_cxr_sections.py         # cxr_sections.csv       (FINDINGS/IMPRESSION)
+python3 preprocessing/01d_extract_radiology_features.py   # cxr_structured_features.csv (16 CXR flags)
+python3 preprocessing/02_features.py                      # timeseries.parquet, X_*, icd/atc/labels  (RANGE_FILTERS vitals fix applied here)
+python3 preprocessing/03_splitting.py                     # split_ids.parquet      (70/15/15, seeded)
+python3 preprocessing/04_preprocessing.py                 # X_*/y_*                 (median imputation)
+python3 preprocessing/06_normalize.py                     # X_*_scaled + scaler_params
+python3 baseline/07_model_gru.py                          # best_gru_model.pt       (GRU, 30 epochs, CPU)
+python3 prd_net/01_extract-embeddings.py                  # prd_net_embeddings.pkl
+python3 prd_net/02_peer-groups.py                         # prd_net_peers.pkl
+python3 prd_net/04_prd-train.py                           # prd_net/checkpoints/prd_net_v1.pt (+ threshold)
+python3 prd_net/05_prd-inference.py                       # (optional) latent-PRD test metrics
+# optional EDA / cross-val: preprocessing/05_analysis.py, baseline/08_crossval.py
+```
+
+**PRD-Net v2** (the feature-space contrastive **difference track**, benchmarked
+against v1 above) builds on these same upstream artifacts but has its own
+config, ablation switches, dashboard and results —
+see **[`pipeline/prd_net_v2/README.md`](pipeline/prd_net_v2/README.md)** for its
+run commands and full design-decision writeup.
 
 Headline test-set results (length-of-stay > 7 days, 23.6 % positive; full rebuild
 2026-08-25, after fixing the ICD hard-filter — see *"ICD hard-filter matched the
